@@ -7,11 +7,14 @@ Status legend: ✅ done · 🟡 in progress · ⬜ not started
 - Architecture → `docs/ARCHITECTURE.md`
 - Database schema → `packages/db/prisma/schema.prisma`
 
-## Phase 1 — Website foundation 🟡
-- Monorepo, Next.js app, design system, navigation
-- Landing page (real stats only)
-- Auth: email/password, Telegram Login, wallet linking (SIWS)
-- Profile, dashboard, discover
+## Phase 1 — Website foundation ✅
+- Monorepo, Next.js 16 app, design system, responsive navigation
+- Landing page (real stats only, interactive flow, FAQ)
+- Auth: email/password (scrypt), Telegram Login (HMAC-verified), wallet linking (signed nonce, replay-safe)
+- Dashboard, discover/markets/challenges listings, challenge & community detail, profile, leaderboard,
+  settings, portfolio (on-chain balance + tx history), Telegram page with one-time deep links, admin overview
+- Postgres-backed rate limiting, audit logs
+- Verified: production build, 19 HTTP API checks, DB trigger checks, desktop/mobile screenshots
 
 ## Phase 2 — Telegram integration ⬜
 - grammY bot, /start /help /dashboard /challenges /markets /leaderboard /submit
