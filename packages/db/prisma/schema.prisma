@@ -1,0 +1,758 @@
+// GoalFi database schema (PostgreSQL, Prisma 7).
+// Conventions: cuid ids, snake_case table names, money as BigInt micro-units (6 dp, matches USDC).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+enum PlatformRole {
+  USER
+  PLATFORM_ADMIN
+}
+
+model User {
+  id               String       @id @default(cuid())
+  username         String       @unique
+  displayName      String?
+  email            String?      @unique
+  passwordHash     String?
+  telegramId       BigInt?      @unique @map("telegram_id")
+  telegramUsername String?
+  walletAddress    String?      @unique @map("wallet_address")
+  walletLinkedAt   DateTime?
+  avatarUrl        String?
+  bio              String?
+  reputationScore  Int          @default(0) @map("reputation_score")
+  role             PlatformRole @default(USER)
+  suspendedAt      DateTime?
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt
+
+  sessions            Session[]
+  walletNonces        WalletNonce[]
+  telegramLinkCodes   TelegramLinkCode[]
+  communitiesCreated  Community[]              @relation("CommunityCreator")
+  memberships         CommunityMember[]
+  challengesCreated   Challenge[]              @relation("ChallengeCreator")
+  challengesResolved  Challenge[]              @relation("ChallengeResolver")
+  challengeRoles      ChallengeRole[]
+  participations      Participant[]
+  evidence            Evidence[]
+  verifications       Verification[]
+  disputes            Dispute[]                @relation("DisputeOpener")
+  disputesResolved    Dispute[]                @relation("DisputeResolver")
+  positions           Position[]
+  transactions        Transaction[]
+  reputationEvents    ReputationEvent[]
+  streaks             Streak[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
+  auditLogs           AuditLog[]
+  reports             Report[]                 @relation("ReportReporter")
+  reportsReviewed     Report[]                 @relation("ReportReviewer")
+  marketsResolved     Market[]                 @relation("MarketResolver")
+  invitesCreated      CommunityInvite[]
+  categoriesCreated   Category[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique // sha256(token); the raw token only lives in the cookie
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model WalletNonce {
+  id        String    @id @default(cuid())
+  nonce     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("wallet_nonces")
+}
+
+enum TelegramLinkPurpose {
+  LINK_ACCOUNT
+  LINK_GROUP
+}
+
+// One-time codes that bind a Telegram user / group to a GoalFi account.
+model TelegramLinkCode {
+  id             String              @id @default(cuid())
+  code           String              @unique
+  purpose        TelegramLinkPurpose
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId    String?
+  community      Community?          @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  telegramChatId BigInt?
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime            @default(now())
+
+  @@map("telegram_link_codes")
+}
+
+// ───────────────────────────── Communities ─────────────────────────────
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum CommunityRole {
+  OWNER
+  ADMIN
+  VERIFIER
+  MEMBER
+}
+
+model Community {
+  id               String     @id @default(cuid())
+  slug             String     @unique
+  name             String
+  description      String?
+  visibility       Visibility @default(PUBLIC)
+  creatorId        String     @map("creator_id")
+  creator          User       @relation("CommunityCreator", fields: [creatorId], references: [id])
+  telegramChatId   BigInt?    @unique @map("telegram_chat_id")
+  telegramTitle    String?
+  telegramLinkedAt DateTime?
+  announcement     String?
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt
+
+  members    CommunityMember[]
+  challenges Challenge[]
+  invites    CommunityInvite[]
+  linkCodes  TelegramLinkCode[]
+
+  @@index([visibility])
+  @@map("communities")
+}
+
+model CommunityMember {
+  id          String        @id @default(cuid())
+  communityId String        @map("community_id")
+  community   Community     @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String        @map("user_id")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        CommunityRole @default(MEMBER)
+  joinedAt    DateTime      @default(now()) @map("joined_at")
+
+  @@unique([communityId, userId])
+  @@index([userId])
+  @@map("community_members")
+}
+
+model CommunityInvite {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  code        String    @unique
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  maxUses     Int?
+  uses        Int       @default(0)
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("community_invites")
+}
+
+// ───────────────────────────── Challenges ─────────────────────────────
+
+model Category {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  challenges Challenge[]
+
+  @@map("categories")
+}
+
+enum ChallengeStatus {
+  DRAFT // being edited, not visible
+  PENDING_MARKET // confirmed; on-chain market being created / awaiting liquidity
+  UPCOMING // published, start date in future
+  ACTIVE // running
+  IN_REVIEW // ended; verification / disputes in progress
+  RESOLVING // resolution tx in flight
+  RESOLVED
+  SUSPENDED
+  CANCELLED
+}
+
+enum ChallengeVisibility {
+  PUBLIC
+  COMMUNITY // visible to community members only
+  PRIVATE // invite only
+}
+
+enum ChallengeKind {
+  PERSONAL
+  GROUP
+  COMPETITION
+}
+
+enum Recurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum Outcome {
+  YES
+  NO
+}
+
+model Challenge {
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  communityId        String?             @map("community_id")
+  community          Community?          @relation(fields: [communityId], references: [id])
+  creatorId          String              @map("creator_id")
+  creator            User                @relation("ChallengeCreator", fields: [creatorId], references: [id])
+  categoryId         String
+  category           Category            @relation(fields: [categoryId], references: [id])
+  title              String
+  description        String
+  rules              String
+  /// Human-readable success criteria shown to everyone.
+  successCriteria    String              @map("success_criteria")
+  /// Machine-checkable criteria (see @goalfi/core SuccessRule). Used to evaluate the outcome.
+  successRule        Json
+  participationReq   String?
+  evidenceReq        String
+  kind               ChallengeKind       @default(GROUP)
+  visibility         ChallengeVisibility @default(PUBLIC)
+  recurrence         Recurrence          @default(NONE)
+  parentChallengeId  String?
+  parentChallenge    Challenge?          @relation("Recurring", fields: [parentChallengeId], references: [id])
+  occurrences        Challenge[]         @relation("Recurring")
+  requiredApprovals  Int                 @default(1)
+  disputeWindowHours Int                 @default(24)
+  maxParticipants    Int?
+  startDate          DateTime            @map("start_date")
+  endDate            DateTime            @map("end_date")
+  status             ChallengeStatus     @default(DRAFT)
+  marketEnabled      Boolean             @default(true)
+  rulesConfirmedAt   DateTime?
+  outcome            Outcome?
+  resultSummary      Json?
+  resolvedAt         DateTime?
+  resolvedById       String?
+  resolvedBy         User?               @relation("ChallengeResolver", fields: [resolvedById], references: [id])
+  suspendedReason    String?
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt
+
+  roles        ChallengeRole[]
+  participants Participant[]
+  evidence     Evidence[]
+  market       Market?
+  streaks      Streak[]
+
+  @@index([status, endDate])
+  @@index([categoryId])
+  @@index([communityId])
+  @@index([creatorId])
+  @@map("challenges")
+}
+
+enum ChallengeRoleType {
+  ADMIN
+  VERIFIER
+}
+
+model ChallengeRole {
+  id          String            @id @default(cuid())
+  challengeId String
+  challenge   Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        ChallengeRoleType
+  assignedAt  DateTime          @default(now())
+
+  @@unique([challengeId, userId, role])
+  @@index([userId])
+  @@map("challenge_roles")
+}
+
+enum ParticipantStatus {
+  JOINED
+  COMPLETED
+  FAILED
+  WITHDRAWN
+}
+
+model Participant {
+  id          String            @id @default(cuid())
+  challengeId String            @map("challenge_id")
+  challenge   Challenge         @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String            @map("user_id")
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      ParticipantStatus @default(JOINED)
+  joinedAt    DateTime          @default(now()) @map("joined_at")
+  completedAt DateTime?
+
+  evidence Evidence[]
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@map("participants")
+}
+
+// ───────────────────────────── Evidence & verification ─────────────────────────────
+
+enum EvidenceStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  DISPUTED
+}
+
+/// Content columns are immutable (enforced by a DB trigger, see migration). Only `status` changes.
+model Evidence {
+  id            String         @id @default(cuid())
+  challengeId   String         @map("challenge_id")
+  challenge     Challenge      @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant    @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  userId        String         @map("user_id")
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  description   String
+  links         String[]
+  /// Numeric progress claimed (e.g. km run). Interpreted by the challenge's SuccessRule.
+  progressValue Decimal?       @db.Decimal(18, 4)
+  /// For daily/streak challenges: the calendar day (UTC) this evidence counts for.
+  activityDate  DateTime?      @db.Date
+  /// sha256 over a canonical manifest of description + links + file hashes.
+  contentHash   String
+  status        EvidenceStatus @default(PENDING)
+  supersedesId  String?        @unique
+  supersedes    Evidence?      @relation("Supersedes", fields: [supersedesId], references: [id])
+  supersededBy  Evidence?      @relation("Supersedes")
+  submittedAt   DateTime       @default(now()) @map("submitted_at")
+  decidedAt     DateTime?
+
+  files         EvidenceFile[]
+  verifications Verification[]
+  disputes      Dispute[]
+
+  @@index([challengeId, status])
+  @@index([userId])
+  @@map("evidence")
+}
+
+model EvidenceFile {
+  id         String   @id @default(cuid())
+  evidenceId String
+  evidence   Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  storageKey String   @unique
+  /// Public or signed URL base. Spec column `file_url`.
+  fileUrl    String   @map("file_url")
+  mimeType   String
+  sizeBytes  Int
+  sha256     String
+  createdAt  DateTime @default(now())
+
+  @@map("evidence_files")
+}
+
+enum VerificationDecision {
+  APPROVE
+  REJECT
+}
+
+model Verification {
+  id         String               @id @default(cuid())
+  evidenceId String               @map("evidence_id")
+  evidence   Evidence             @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  verifierId String               @map("verifier_id")
+  verifier   User                 @relation(fields: [verifierId], references: [id])
+  decision   VerificationDecision
+  reason     String?
+  /// Round increments when a dispute re-opens review, so a verifier can vote again in a new round.
+  round      Int                  @default(0)
+  createdAt  DateTime             @default(now()) @map("created_at")
+
+  @@unique([evidenceId, verifierId, round])
+  @@index([verifierId])
+  @@map("verifications")
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  UPHELD // original decision overturned
+  DISMISSED // original decision stands
+}
+
+model Dispute {
+  id             String          @id @default(cuid())
+  evidenceId     String          @map("evidence_id")
+  evidence       Evidence        @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  userId         String          @map("user_id")
+  user           User            @relation("DisputeOpener", fields: [userId], references: [id])
+  reason         String
+  status         DisputeStatus   @default(OPEN)
+  finalDecision  EvidenceStatus? @map("final_decision")
+  resolutionNote String?
+  resolvedById   String?
+  resolvedBy     User?           @relation("DisputeResolver", fields: [resolvedById], references: [id])
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+
+  @@index([evidenceId, status])
+  @@map("disputes")
+}
+
+// ───────────────────────────── Markets (pm-AMM) ─────────────────────────────
+
+enum Cluster {
+  DEVNET
+  MAINNET
+}
+
+enum MarketType {
+  BINARY
+  MULTI_OUTCOME
+  COMMITMENT_VAULT
+  BET_VAULT
+}
+
+enum MarketStatus {
+  CREATING // intent recorded, initialize tx not yet confirmed
+  AWAITING_LIQUIDITY // market exists on-chain, no liquidity yet
+  FUNDING // commitment vault collecting commits
+  OPEN // tradeable
+  CLOSED // end_ts passed; trading disabled on-chain
+  RESOLVING // resolve tx in flight
+  RESOLVED
+  FAILED // creation failed or vault never reached min total
+}
+
+model Market {
+  id                  String       @id @default(cuid())
+  challengeId         String       @unique @map("challenge_id")
+  challenge           Challenge    @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  cluster             Cluster
+  programId           String
+  collateralMint      String
+  marketType          MarketType   @map("market_type")
+  /// u64 id used in the market PDA seed, chosen by GoalFi before sending (decimal string).
+  onchainId           String
+  /// Market PDA (binary) — spec column `market_address`.
+  marketAddress       String?      @unique @map("market_address")
+  /// Group PDA for multi-outcome, vault PDA for vault-based markets.
+  groupAddress        String?      @unique
+  vaultAddress        String?      @unique
+  authority           String
+  initialPriceBps     Int          @map("initial_price") // 0 = 50/50, else 100..9900
+  liquidityTargetUsdc BigInt       @default(0) // micro-units
+  /// Last indexed liquidity (pool value, micro-units). Cached from chain; never authoritative.
+  liquidity           BigInt       @default(0)
+  endTs               DateTime
+  status              MarketStatus @default(CREATING)
+  winningOutcome      Int?         @map("winning_outcome") // binary: 1 = YES, 2 = NO; multi: leg index
+  creationSignature   String?      @unique
+  resolutionSignature String?      @unique @map("transaction_signature")
+  resolvedAt          DateTime?
+  resolvedById        String?
+  resolvedBy          User?        @relation("MarketResolver", fields: [resolvedById], references: [id])
+  lastError           String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  outcomes     MarketOutcome[]
+  snapshots    MarketSnapshot[]
+  positions    Position[]
+  transactions Transaction[]
+
+  @@unique([cluster, programId, onchainId])
+  @@index([status, endTs])
+  @@map("markets")
+}
+
+model MarketOutcome {
+  id               String  @id @default(cuid())
+  marketId         String
+  market           Market  @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  index            Int
+  label            String
+  /// Leg market PDA for multi-outcome groups.
+  legMarketAddress String? @unique
+  legOnchainId     String?
+
+  @@unique([marketId, index])
+  @@map("market_outcomes")
+}
+
+model MarketSnapshot {
+  id          String   @id @default(cuid())
+  marketId    String
+  market      Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcomeIdx  Int      @default(0)
+  yesPrice    Float
+  reserveYes  Float
+  reserveNo   Float
+  lEff        Float
+  poolValue   Float
+  slot        BigInt?
+  takenAt     DateTime @default(now())
+
+  @@index([marketId, takenAt])
+  @@map("market_snapshots")
+}
+
+/// Cached aggregate of a user's confirmed activity per market outcome.
+/// Authoritative holdings are always read from the on-chain token accounts.
+model Position {
+  id                   String   @id @default(cuid())
+  userId               String   @map("user_id")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketId             String   @map("market_id")
+  market               Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcome              Int // 1 = YES, 2 = NO (binary); leg index for multi
+  /// Total USDC spent on buys (micro). Spec column `amount`.
+  amount               BigInt   @default(0)
+  sharesBought         BigInt   @default(0)
+  sharesSold           BigInt   @default(0)
+  usdcReceived         BigInt   @default(0)
+  lastSignature        String?  @map("transaction_signature")
+  updatedAt            DateTime @updatedAt
+
+  @@unique([userId, marketId, outcome])
+  @@map("positions")
+}
+
+enum TxKind {
+  CREATE_MARKET
+  DEPOSIT_LIQUIDITY
+  WITHDRAW_LIQUIDITY
+  BUY_YES
+  BUY_NO
+  SELL_YES
+  SELL_NO
+  REDEEM_PAIR
+  RESOLVE_MARKET
+  CLAIM_WINNINGS
+  CLAIM_LP_RESIDUALS
+  VAULT_COMMIT
+  VAULT_LAUNCH
+  VAULT_CLAIM
+  VAULT_REFUND
+}
+
+enum TxStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+model Transaction {
+  id              String    @id @default(cuid())
+  userId          String?   @map("user_id")
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  marketId        String?   @map("market_id")
+  market          Market?   @relation(fields: [marketId], references: [id], onDelete: SetNull)
+  signature       String    @unique @map("transaction_signature")
+  kind            TxKind    @map("transaction_type")
+  outcome         Int?
+  /// Input amount in micro-units (USDC or outcome tokens).
+  amount          BigInt    @default(0)
+  /// Observed output in micro-units, from confirmed balance deltas.
+  outputAmount    BigInt?
+  status          TxStatus  @default(PENDING)
+  error           String?
+  slot            BigInt?
+  attempts        Int       @default(0)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  confirmedAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([marketId, createdAt])
+  @@index([status, createdAt])
+  @@map("transactions")
+}
+
+// ───────────────────────────── Reputation, streaks, notifications ─────────────────────────────
+
+enum ReputationActivity {
+  CHALLENGE_COMPLETED
+  EVIDENCE_APPROVED
+  STREAK_MILESTONE
+  CHALLENGE_CREATED_SUCCESSFUL
+  FAIR_VERIFICATION
+  PENALTY_EVIDENCE_OVERTURNED
+}
+
+model ReputationEvent {
+  id           String             @id @default(cuid())
+  userId       String             @map("user_id")
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityType ReputationActivity @map("activity_type")
+  points       Int
+  /// The entity that earned the points; unique per (user, activity, ref) so points can't be double-awarded.
+  refId        String
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  @@unique([userId, activityType, refId])
+  @@index([userId])
+  @@map("reputation")
+}
+
+model Streak {
+  id               String     @id @default(cuid())
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  challengeId      String
+  challenge        Challenge  @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  period           Recurrence
+  current          Int        @default(0)
+  longest          Int        @default(0)
+  lastActivityDate DateTime?  @db.Date
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([userId, challengeId])
+  @@index([userId])
+  @@map("streaks")
+}
+
+enum NotificationType {
+  CHALLENGE_NEW
+  CHALLENGE_INVITE
+  CHALLENGE_STARTING
+  CHALLENGE_ENDING
+  EVIDENCE_RECEIVED
+  EVIDENCE_APPROVED
+  EVIDENCE_REJECTED
+  DISPUTE_OPENED
+  DISPUTE_RESOLVED
+  MARKET_UPDATE
+  TRADE_CONFIRMED
+  CHALLENGE_RESOLVED
+  WINNINGS_AVAILABLE
+  CLAIM_CONFIRMED
+  STREAK_REMINDER
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  userId         String           @map("user_id")
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           NotificationType @map("notification_type")
+  message        String
+  link           String?
+  /// Dedup key, e.g. "EVIDENCE_APPROVED:<evidenceId>".
+  dedupKey       String?
+  readAt         DateTime?        @map("read_status")
+  telegramSentAt DateTime?
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@unique([userId, dedupKey])
+  @@index([userId, readAt])
+  @@index([telegramSentAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id       String           @id @default(cuid())
+  userId   String
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type     NotificationType
+  web      Boolean          @default(true)
+  telegram Boolean          @default(true)
+
+  @@unique([userId, type])
+  @@map("notification_preferences")
+}
+
+// ───────────────────────────── Administration ─────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
+}
+
+enum ReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+}
+
+model Report {
+  id           String       @id @default(cuid())
+  reporterId   String
+  reporter     User         @relation("ReportReporter", fields: [reporterId], references: [id])
+  entityType   String
+  entityId     String
+  reason       String
+  status       ReportStatus @default(OPEN)
+  reviewedById String?
+  reviewedBy   User?        @relation("ReportReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  createdAt    DateTime     @default(now())
+
+  @@index([status])
+  @@map("reports")
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+
+  @@map("rate_limit_buckets")
+}
