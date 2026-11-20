@@ -5,11 +5,14 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
+import { getCurrentUser } from "@/lib/server/auth";
+import { CreateCommunity } from "./create-community";
 
 export const metadata = { title: "Communities" };
 export const dynamic = "force-dynamic";
 
 export default async function Communities() {
+  const user = await getCurrentUser();
   const communities = await prisma.community.findMany({
     where: { visibility: "PUBLIC" },
     orderBy: { members: { _count: "desc" } },
@@ -26,7 +29,10 @@ export default async function Communities() {
           <h1 className="text-3xl font-bold tracking-tight">Communities</h1>
           <p className="mt-1 text-muted-foreground">Groups that hold each other accountable.</p>
         </div>
-        <Button asChild variant="outline"><Link href="/telegram"><Send />Connect a Telegram group</Link></Button>
+        <div className="flex flex-wrap items-start gap-2">
+          <Button asChild variant="outline"><Link href="/telegram"><Send />Connect a Telegram group</Link></Button>
+          {user && <CreateCommunity />}
+        </div>
       </div>
       <div className="mt-8">
         {communities.length === 0 ? (

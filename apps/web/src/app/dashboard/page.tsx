@@ -28,7 +28,7 @@ export default async function Dashboard() {
     prisma.position.count({ where: { userId: user.id, market: { status: { in: ["OPEN", "CLOSED"] } } } }),
     prisma.position.count({ where: { userId: user.id, market: { status: "RESOLVED" } } }),
     prisma.challenge.findMany({
-      where: { community: { members: { some: { userId: user.id } } }, status: { notIn: ["DRAFT"] } },
+      where: { community: { members: { some: { userId: user.id } } }, status: { notIn: ["DRAFT", "PENDING_MARKET"] } },
       orderBy: { createdAt: "desc" }, take: 5, select: { slug: true, title: true, createdAt: true, community: { select: { name: true } } },
     }),
   ]);

@@ -33,7 +33,8 @@ export async function challengeAccess(db: Db, challengeId: string, actor: Actor 
   const isAdmin = !!uid && (adminIds.includes(uid) || communityRole === "OWNER" || communityRole === "ADMIN" || actor?.role === "PLATFORM_ADMIN");
   const isVerifier = !!uid && verifierIds.includes(uid);
   const isCommunityMember = communityRole !== null;
-  const published = challenge.status !== "DRAFT";
+  // Not public until launched: drafts and markets still being created/funded are hidden.
+  const published = challenge.status !== "DRAFT" && challenge.status !== "PENDING_MARKET";
   const canView =
     isAdmin || isVerifier || isParticipant ||
     (published && (challenge.visibility === "PUBLIC" || (challenge.visibility === "COMMUNITY" && isCommunityMember)));

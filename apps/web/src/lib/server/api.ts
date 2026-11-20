@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { z, type ZodType } from "zod";
 import { prisma, type Prisma } from "@goalfi/db";
+import { ServiceError } from "@goalfi/services";
 import { HttpError } from "./auth";
 
 /** JSON response that serializes bigint safely. */
@@ -28,7 +29,7 @@ export function route<C>(handler: (req: NextRequest, ctx: C) => Promise<Response
     try {
       return await handler(req, ctx);
     } catch (err) {
-      if (err instanceof HttpError) return json({ error: err.message, details: err.details }, { status: err.status });
+      if (err instanceof HttpError || err instanceof ServiceError) return json({ error: err.message, details: err.details }, { status: err.status });
       console.error("[api]", req.method, req.nextUrl.pathname, err);
       return json({ error: "Internal server error" }, { status: 500 });
     }

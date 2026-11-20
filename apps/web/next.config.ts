@@ -1,9 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@goalfi/core", "@goalfi/chain", "@pm-amm/sdk"],
+  transpilePackages: ["@goalfi/core", "@goalfi/chain", "@goalfi/services", "@pm-amm/sdk"],
   serverExternalPackages: ["@goalfi/db", "@prisma/client", "@prisma/adapter-pg", "pg"],
   poweredByHeader: false,
+  turbopack: {
+    // @anchor-lang/core's browser build has a dead-code require("fs") (NodeWallet.local()).
+    resolveAlias: { fs: { browser: "./src/lib/empty-module.cjs" } },
+  },
   async headers() {
     return [
       {

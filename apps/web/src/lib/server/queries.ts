@@ -3,7 +3,8 @@ import { prisma, type Prisma } from "@goalfi/db";
 
 /** Visibility filter: what a viewer (or anonymous visitor) may see. */
 export function visibleChallengesWhere(viewerId: string | null): Prisma.ChallengeWhereInput {
-  const published: Prisma.ChallengeWhereInput = { status: { notIn: ["DRAFT"] } };
+  // Drafts and challenges whose market is still being created/funded are not public yet.
+  const published: Prisma.ChallengeWhereInput = { status: { notIn: ["DRAFT", "PENDING_MARKET"] } };
   if (!viewerId) return { ...published, visibility: "PUBLIC" };
   return {
     ...published,
@@ -75,7 +76,7 @@ export async function listChallenges(opts: {
 export async function platformStats() {
   const [users, challenges, activeMarkets, participants, approvedEvidence, communities] = await Promise.all([
     prisma.user.count(),
-    prisma.challenge.count({ where: { status: { notIn: ["DRAFT", "CANCELLED"] } } }),
+    prisma.challenge.count({ where: { status: { notIn: ["DRAFT", "PENDING_MARKET", "CANCELLED"] } } }),
     prisma.market.count({ where: { status: "OPEN" } }),
     prisma.participant.count(),
     prisma.evidence.count({ where: { status: "APPROVED" } }),
@@ -88,6 +89,6 @@ export async function listCategories() {
   return prisma.category.findMany({
     where: { active: true },
     orderBy: { sortOrder: "asc" },
-    select: { slug: true, name: true, description: true, icon: true, _count: { select: { challenges: { where: { visibility: "PUBLIC", status: { notIn: ["DRAFT"] } } } } } },
+    select: { slug: true, name: true, description: true, icon: true, _count: { select: { challenges: { where: { visibility: "PUBLIC", status: { notIn: ["DRAFT", "PENDING_MARKET"] } } } } } },
   });
 }
