@@ -124,7 +124,7 @@ export default async function Home() {
         </div>
         <div className="mt-6">
           {markets.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{markets.map((c) => <ChallengeCard key={c.id} c={c} />)}</div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{markets.map((c) => <ChallengeCard key={c.id} c={c} linkTo="market" />)}</div>
           ) : (
             <EmptyState title="No live markets yet">Markets open when a challenge launches with an on-chain pm-AMM market and initial liquidity.</EmptyState>
           )}

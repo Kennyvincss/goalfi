@@ -174,6 +174,9 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
                 )}
                 {m.resolutionSignature && gw && <a className="flex items-center gap-1 text-primary" href={gw.explorerTxUrl(m.resolutionSignature)} target="_blank" rel="noreferrer">Resolution transaction <ExternalLink className="size-3.5" /></a>}
                 {snap && <p className="text-xs text-muted-foreground">Price indexed {snap.takenAt.toLocaleString()}</p>}
+                {["OPEN", "CLOSED", "RESOLVING", "RESOLVED"].includes(m.status) && (
+                  <Button asChild className="w-full"><Link href={`/markets/${c.slug}`}>{m.status === "OPEN" ? "Trade this market" : m.status === "RESOLVED" ? "View market & claim" : "View market"}</Link></Button>
+                )}
               </>
             )}
           </CardContent>

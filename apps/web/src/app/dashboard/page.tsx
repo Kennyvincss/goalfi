@@ -110,7 +110,7 @@ export default async function Dashboard() {
         <h2 className="text-lg font-semibold">Trending markets</h2>
         <div className="mt-4">
           {trendingMarkets.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-3">{trendingMarkets.map((c) => <ChallengeCard key={c.id} c={c} />)}</div>
+            <div className="grid gap-4 sm:grid-cols-3">{trendingMarkets.map((c) => <ChallengeCard key={c.id} c={c} linkTo="market" />)}</div>
           ) : <EmptyState title="No live markets yet" />}
         </div>
       </section>
