@@ -16,16 +16,25 @@ Status legend: ✅ done · 🟡 in progress · ⬜ not started
 - Postgres-backed rate limiting, audit logs
 - Verified: production build, 19 HTTP API checks, DB trigger checks, desktop/mobile screenshots
 
-## Phase 2 — Telegram integration ⬜
-- grammY bot, /start /help /dashboard /challenges /markets /leaderboard /submit
-- `startgroup` deep link → `my_chat_member` → admin check (`getChatMember`) → one-time link code → community
-- Announcements & notification dispatcher
+## Phase 2 — Telegram integration ✅ (offline-tested; live Telegram API blocked in dev sandbox)
+- grammY bot: /start /help /dashboard /challenges /markets /leaderboard /submit /join
+- `startgroup` deep link → `/start <code>` → bot membership + sender admin check (`getChatMember`) → community
+- Account linking via `/start <code>` in private chat; removal/migration handling
+- Notification mirroring with quick-approve actions; deduplicated group announcement outbox
+- Workers: lifecycle scheduler, tx reconciler, stuck-resolution reconciler, market snapshot indexer
+- Polling or webhook mode. See `docs/TELEGRAM.md`. 6 bot tests (real updates, captured Bot API calls)
 
-## Phase 3 — Challenge system ⬜
-- Create flow with templates + summary/confirm, categories, participants
-- Evidence upload (hash + immutable), verification thresholds, disputes
+## Phase 3 — Challenge system ✅
+- `@goalfi/services` shared by web + bot; 17 integration tests on Postgres
+- Builder with templates and structured success rules → draft → summary + explicit rule confirmation
+- YES/NO market created on-chain at confirm (intent row, retry); goes live after verified creator funding
+- Join/leave, evidence upload (content-hash manifest, immutable, supersede), authorized file serving
+- N-of-M verification, review queue, disputes with final admin rulings, reputation + streaks
+- Resolution gate + admin confirmation → on-chain resolve → participants/reputation/winners
+- Browser e2e: 23 checks (builder UI → publish → join → upload → 2-of-2 approval → gated resolution;
+  on-chain create failure is surfaced and retryable)
 
-## Phase 4 — pm-AMM integration ⬜ (code written in `@goalfi/chain`; live devnet run pending network access)
+## Phase 4 — pm-AMM integration 🟡 (create/fund/resolve wired end-to-end; trading UI next; live devnet run pending network access)
 - Market creation with platform authority, liquidity seeding from creator wallet
 - Swaps (buy/sell) with simulated quotes, resolution, claims
 - Devnet e2e script: create → deposit → swap → (expire) → resolve → claim

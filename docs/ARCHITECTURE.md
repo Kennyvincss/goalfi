@@ -25,8 +25,9 @@
 | `@goalfi/core` | Pure business rules: verification thresholds, dispute gating, **resolution prerequisites**, reputation points, streaks, challenge state machine, validation schemas. No I/O. | zod |
 | `@goalfi/db` | Prisma schema, migrations, client singleton. | prisma |
 | `@goalfi/chain` | Everything Solana: cluster config, pm-AMM client factories, market views, quotes, platform-authority operations (create/resolve), tx verification. No business rules. | @pm-amm/sdk, web3.js 1.x, anchor, spl-token |
-| `apps/web` | Website + REST API. Orchestrates core + db + chain. | all |
-| `apps/bot` | Telegram bot + background workers. | core, db, chain |
+| `@goalfi/services` | Use cases shared by web + bot: challenge lifecycle, evidence, verification, disputes, resolution, user-tx verification, Telegram linking, scheduler ticks. Talks to Solana only through the `MarketGateway` interface. | core, db, chain (via gateway) |
+| `apps/web` | Website + REST API (thin route handlers over services). | services |
+| `apps/bot` | Telegram bot + background workers. | services |
 
 Business logic (core) and blockchain logic (chain) never import each other. Only the app layer
 composes them. Example: `resolveChallenge()` in the web API loads state from the DB, calls

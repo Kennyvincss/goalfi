@@ -13,7 +13,8 @@ CREATE → PARTICIPATE → SUBMIT EVIDENCE → VERIFY → TRADE → RESOLVE → 
 | Path | What |
 |---|---|
 | `apps/web` | Next.js 16 website + REST API (`/api/*`) |
-| `apps/bot` | Telegram bot + background workers (Phase 2) |
+| `apps/bot` | Telegram bot + background workers ([setup](docs/TELEGRAM.md)) |
+| `packages/services` | Business services shared by web API and bot (challenges, evidence, verification, disputes, resolution, transactions, Telegram linking) |
 | `packages/core` | Pure business rules: verification, disputes, resolution gate, reputation, streaks, templates |
 | `packages/chain` | pm-AMM integration on `@pm-amm/sdk@0.2.0` (config, market reads, quotes, tx builders, authority ops) |
 | `packages/db` | Prisma 7 schema, migrations, seed |
@@ -35,9 +36,14 @@ pnpm dev                          # http://localhost:3000
 Tests:
 
 ```bash
-pnpm test        # core (48) + chain (23) unit tests
+createdb goalfi_test && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/goalfi_test pnpm --filter @goalfi/db migrate:deploy
+pnpm test        # core (48) + chain (23) unit, services (17) + bot (6) integration tests
 pnpm typecheck
 ```
+
+Integration tests use `TEST_DATABASE_URL` (default `postgres://…/goalfi_test`) and truncate it. Never point it at real data.
+
+Run the bot + workers: `pnpm --filter @goalfi/bot start` (see [docs/TELEGRAM.md](docs/TELEGRAM.md)).
 
 ### Devnet (real on-chain loop)
 
