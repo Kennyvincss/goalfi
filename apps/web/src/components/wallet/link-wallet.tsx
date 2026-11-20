@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import bs58 from "bs58";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { WalletButton } from "@/components/wallet/wallet-button";
 import { Button } from "@/components/ui/button";
 
 /** Link a wallet by signing a one-time nonce message (no transaction, no fee). */
@@ -51,7 +51,7 @@ export function LinkWallet({ linked }: { linked: string | null }) {
         <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs break-all">Linked: {linked}</div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <WalletMultiButton style={{ height: 40, borderRadius: 8, fontSize: 14 }} />
+        <WalletButton style={{ height: 40, borderRadius: 8, fontSize: 14 }} />
         {connected && connectedAddr !== linked && (
           <Button onClick={link} disabled={busy}>{busy ? "Waiting for signature…" : linked ? "Link this wallet instead" : "Link this wallet"}</Button>
         )}

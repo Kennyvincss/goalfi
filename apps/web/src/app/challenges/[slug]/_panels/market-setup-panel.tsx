@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { WalletButton } from "@/components/wallet/wallet-button";
 import { buildDepositLiquidityTx, PmAmmClient } from "@goalfi/chain/browser";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -85,7 +85,7 @@ export function MarketSetupPanel(p: Props) {
       </div>
       {p.isCreator ? (
         <div className="space-y-3">
-          <WalletMultiButton style={{ height: 40, borderRadius: 8, fontSize: 14 }} />
+          <WalletButton style={{ height: 40, borderRadius: 8, fontSize: 14 }} />
           {wallet.connected && !walletMatches && <p className="text-sm text-warning">Connect the wallet linked to your account ({p.linkedWallet ?? "none: link one in Settings"}).</p>}
           {walletMatches && (
             <div className="flex flex-wrap items-center gap-2">

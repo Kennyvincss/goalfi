@@ -34,12 +34,23 @@ Status legend: ✅ done · 🟡 in progress · ⬜ not started
 - Browser e2e: 23 checks (builder UI → publish → join → upload → 2-of-2 approval → gated resolution;
   on-chain create failure is surfaced and retryable)
 
-## Phase 4 — pm-AMM integration 🟡 (create/fund/resolve wired end-to-end; trading UI next; live devnet run pending network access)
-- Market creation with platform authority, liquidity seeding from creator wallet
-- Swaps (buy/sell) with simulated quotes, resolution, claims
-- Devnet e2e script: create → deposit → swap → (expire) → resolve → claim
+## Phase 4 — pm-AMM integration 🟡 (all flows wired through the official SDK; live devnet run pending network access)
+- Market creation (platform authority), creator liquidity funding, swaps, resolution, claims, pair redemption
+- Exact quotes by simulating the real swap transaction; L_eff recovered from reserves via the curve invariant
+- Devnet e2e script ready: `pnpm --filter @goalfi/chain devnet:e2e`
 
-## Phase 5 — Marketplace & portfolio ⬜
+## Phase 5 — Marketplace & portfolio ✅ (browser-tested against intercepted RPC)
+- `/markets` with Trending, New, Ending soon, Most traded, Highest liquidity + category filters
+- `/markets/[slug]`: live on-chain prices and pool depth, price-history chart, volume, resolution rules,
+  recent activity, market information, trade panel (buy/sell YES/NO, fee-aware estimate, simulated exact
+  quote, slippage → minOutput, wallet signing, confirmation, backend verification), position panel
+  (holdings, mark-to-price estimate or exact settled value, claim, redeem pairs)
+- `/portfolio`: one-call token-account scan across all GoalFi markets, open/claimable totals, claim buttons,
+  confirmed spend/received, transaction history
+- Browser e2e (`pnpm --filter @goalfi/services e2e:trade`, 21 checks): real Anchor-encoded market account
+  served via RPC interception + Wallet Standard test wallet; decodes the signed swap instruction and checks
+  amount_in, min_output, fee payer and accounts
+
 ## Phase 6 — Community features (leaderboards, reputation, streaks, recurring) ⬜
 ## Phase 7 — Testing & devnet deployment ⬜
 

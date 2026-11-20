@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { WalletButton } from "@/components/wallet/wallet-button";
 import { buildClaimWinningsTx, PmAmmClient, scanOwnerHoldings, type MarketHolding } from "@goalfi/chain/browser";
 import { formatProbability, valuePosition } from "@goalfi/core";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +52,8 @@ export function Positions({ wallet, markets, programId, collateralMint, symbol, 
     try {
       setHoldings(await scanOwnerHoldings(connection, new PublicKey(programId), new PublicKey(wallet), markets.map((m) => m.address)));
       setError(null);
-    } catch {
+    } catch (e) {
+      console.error("[portfolio] holdings scan failed", e);
       setError("Could not reach the Solana RPC to read your on-chain positions.");
     }
   }, [connection, programId, wallet, markets]);
@@ -137,18 +138,18 @@ export function Positions({ wallet, markets, programId, collateralMint, symbol, 
       {error && <p className="rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">{error}</p>}
       {!walletOk && settled.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <WalletMultiButton style={{ height: 36, borderRadius: 8, fontSize: 13 }} />
+          <WalletButton style={{ height: 36, borderRadius: 8, fontSize: 13 }} />
           <span className="text-muted-foreground">Connect your linked wallet ({wallet.slice(0, 4)}…{wallet.slice(-4)}) to claim.</span>
         </div>
       )}
       {msg && <p className={cn("rounded-md px-3 py-2 text-sm", msg.ok ? "bg-yes-soft text-yes" : "bg-no-soft text-no")} role="status">{msg.text}</p>}
       <Card>
         <CardHeader><CardTitle>Active positions</CardTitle></CardHeader>
-        <CardContent>{holdings === null && !error ? <p className="text-sm text-muted-foreground">Reading on-chain balances…</p> : table(open, "No open positions.")}</CardContent>
+        <CardContent>{holdings === null ? <p className="text-sm text-muted-foreground">{error ? "Unavailable until the RPC responds." : "Reading on-chain balances…"}</p> : table(open, "No open positions.")}</CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>Resolved markets</CardTitle></CardHeader>
-        <CardContent>{holdings === null && !error ? null : table(settled, "No unclaimed positions in resolved markets.")}</CardContent>
+        <CardContent>{holdings === null ? <p className="text-sm text-muted-foreground">{error ? "Unavailable until the RPC responds." : "Reading on-chain balances…"}</p> : table(settled, "No unclaimed positions in resolved markets.")}</CardContent>
       </Card>
       <p className="text-xs text-muted-foreground">Balances are read directly from your wallet’s token accounts on Solana {cluster === "DEVNET" ? "devnet" : "mainnet"}. Open-position values are estimates at the current market price, not guaranteed sale proceeds.</p>
     </div>

@@ -86,7 +86,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             </div>
             <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">{c.marketQuestion ?? c.title}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Challenge: <Link className="text-primary" href={`/challenges/${c.slug}`}>{c.title}</Link> · {c._count.participants} participants · {timeRemaining(m.endTs)}
+              Challenge: <Link className="text-primary" href={`/challenges/${c.slug}`}>{c.title}</Link> · {c._count.participants} participants · {m.status === "RESOLVED" ? "resolved" : m.status === "OPEN" || m.status === "AWAITING_LIQUIDITY" ? timeRemaining(m.endTs) : "trading closed"}
             </p>
           </div>
 

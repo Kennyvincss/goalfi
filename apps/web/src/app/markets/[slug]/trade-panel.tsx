@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { WalletButton } from "@/components/wallet/wallet-button";
 import { buildSwapTx, estimateBuy, quoteTrade, swapDirection, type TradeAction, type TradeSide } from "@goalfi/chain/browser";
 import { DEFAULT_SLIPPAGE_BPS, formatProbability, fromMicro, minOutWithSlippage, parseAmount, SLIPPAGE_PRESETS_BPS } from "@goalfi/core";
 import { Button } from "@/components/ui/button";
@@ -70,6 +70,18 @@ export function TradePanel() {
       `${action === "BUY" ? "Buy" : "Sell"} ${side}`,
     );
     setInput("");
+  }
+
+  if (view?.resolved || cfg.winningOutcome) {
+    return (
+      <Card>
+        <CardContent className="space-y-2 pt-5 text-sm">
+          <p className="font-medium">Trading is closed. This market is resolved.</p>
+          <p className="text-muted-foreground">If you hold winning shares, claim them in <b>Your position</b>. Payouts go straight from the pm-AMM market to your wallet.</p>
+          {!wallet.connected && cfg.linkedWallet && <WalletButton style={{ height: 40, borderRadius: 8, fontSize: 14 }} />}
+        </CardContent>
+      </Card>
+    );
   }
 
   let gate: React.ReactNode = null;
@@ -157,7 +169,7 @@ export function TradePanel() {
             ) : !cfg.linkedWallet ? (
               <Button asChild className="w-full"><Link href="/settings#wallet">Link a wallet to trade</Link></Button>
             ) : !wallet.connected ? (
-              <WalletMultiButton style={{ width: "100%", justifyContent: "center", height: 44, borderRadius: 8 }} />
+              <WalletButton style={{ width: "100%", justifyContent: "center", height: 44, borderRadius: 8 }} />
             ) : !walletOk ? (
               <p className="text-sm text-warning">Switch to your linked wallet ({cfg.linkedWallet.slice(0, 4)}…{cfg.linkedWallet.slice(-4)}) so the trade is credited to your account.</p>
             ) : (

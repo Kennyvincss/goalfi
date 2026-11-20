@@ -15,7 +15,8 @@ export function WalletProviders({ children }: { children: ReactNode }) {
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
   return (
     <ConnectionProvider endpoint={PUBLIC_RPC} config={{ commitment: "confirmed" }}>
-      <WalletProvider wallets={wallets} autoConnect={false}>
+      {/* autoConnect: picking a wallet in the modal connects immediately, and returning users reconnect. */}
+      <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>

@@ -8,6 +8,16 @@ const usd = (micro: number) => (micro / 1e6).toLocaleString("en-US", { maximumFr
 /** Live YES/NO probabilities and pool depth read straight from the on-chain market. */
 export function LiveHeader({ fallbackYes }: { fallbackYes: number | null }) {
   const { view, cfg, loaded, rpcError } = useLiveMarket();
+  const winner = cfg.winningOutcome ?? (view?.resolved && (view.winningSide === "YES" || view.winningSide === "NO") ? view.winningSide : null);
+  if (view?.resolved || cfg.winningOutcome) {
+    return (
+      <div className={`rounded-lg p-5 ${winner === "YES" ? "bg-yes-soft" : winner === "NO" ? "bg-no-soft" : "bg-muted"}`}>
+        <div className="text-xs font-medium text-muted-foreground">Resolved on-chain</div>
+        <div className={`text-3xl font-bold ${winner === "YES" ? "text-yes" : winner === "NO" ? "text-no" : ""}`}>{winner ? `${winner} won` : "Resolved"}</div>
+        <p className="mt-1 text-sm text-muted-foreground">{winner ? `Each ${winner} share redeems for 1 ${cfg.symbol}. ${winner === "YES" ? "NO" : "YES"} shares are worth nothing.` : "Winning shares redeem for 1 each."}</p>
+      </div>
+    );
+  }
   const live = view && Number.isFinite(view.pool.yesPrice);
   const yes = live ? view.pool.yesPrice : fallbackYes;
   return (

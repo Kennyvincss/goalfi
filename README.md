@@ -43,6 +43,13 @@ pnpm typecheck
 
 Integration tests use `TEST_DATABASE_URL` (default `postgres://…/goalfi_test`) and truncate it. Never point it at real data.
 
+Browser end-to-end suites (need the web app on `:3100`, the dev DB and Playwright):
+
+```bash
+pnpm --filter @goalfi/services e2e:challenge   # builder → publish → join → evidence → 2-of-2 verification → gated resolution
+pnpm --filter @goalfi/services e2e:trade       # market page, quotes, signed swap decoding, portfolio, claim (RPC intercepted)
+```
+
 Run the bot + workers: `pnpm --filter @goalfi/bot start` (see [docs/TELEGRAM.md](docs/TELEGRAM.md)).
 
 ### Devnet (real on-chain loop)

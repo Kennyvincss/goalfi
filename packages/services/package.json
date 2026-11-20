@@ -10,7 +10,9 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "e2e:trade": "tsx e2e/trade-ui.e2e.ts",
+    "e2e:challenge": "node e2e/challenge-flow.e2e.cjs"
   },
   "dependencies": {
     "@goalfi/chain": "workspace:*",
@@ -24,6 +26,11 @@
     "@types/node": "22.20.5",
     "dotenv": "17.4.2",
     "typescript": "5.9.3",
-    "vitest": "3.2.7"
+    "vitest": "3.2.7",
+    "@anchor-lang/core": "1.2.2",
+    "@pm-amm/sdk": "0.2.0",
+    "@solana/spl-token": "0.4.15",
+    "bs58": "6.0.0",
+    "tsx": "4.23.15"
   }
 }
