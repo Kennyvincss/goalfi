@@ -32,12 +32,12 @@ export function ProbabilityBar({ yes }: { yes: number }) {
   );
 }
 
-export function ChallengeCard({ c }: { c: ChallengeCardData }) {
+export function ChallengeCard({ c, linkTo = "challenge" }: { c: ChallengeCardData; linkTo?: "challenge" | "market" }) {
   const status = STATUS_LABEL[c.status] ?? { label: c.status, variant: "muted" as const };
   const snap = c.market?.snapshots[0];
   const hasPrice = snap && Number.isFinite(snap.yesPrice);
   return (
-    <Link href={`/challenges/${c.slug}`} className="group">
+    <Link href={linkTo === "market" && c.market ? `/markets/${c.slug}` : `/challenges/${c.slug}`} className="group">
       <Card className="flex h-full flex-col gap-4 p-5 transition-shadow group-hover:shadow-md">
         <div className="flex items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -56,7 +56,8 @@ export function ChallengeCard({ c }: { c: ChallengeCardData }) {
         <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground tabular">
           <span className="flex items-center gap-1"><Users className="size-3.5" />{c._count.participants} joined</span>
           <span className="flex items-center gap-1"><Clock className="size-3.5" />{timeRemaining(c.endDate)}</span>
-          {c.market && c.volumeMicro !== undefined && <span>Vol ${formatUsd(c.volumeMicro)}</span>}
+          {c.market && c.volumeMicro !== undefined && <span>Vol {formatUsd(c.volumeMicro)}</span>}
+          {c.market && c.market.liquidity > 0n && <span>Liq {formatUsd(c.market.liquidity)}</span>}
         </div>
       </Card>
     </Link>

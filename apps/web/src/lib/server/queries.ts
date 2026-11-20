@@ -32,20 +32,23 @@ export const challengeCardInclude = {
 
 export type ChallengeCardData = Prisma.ChallengeGetPayload<{ include: typeof challengeCardInclude }> & { volumeMicro?: bigint };
 
-const SWAP_KINDS = ["BUY_YES", "BUY_NO", "SELL_YES", "SELL_NO"] as const;
-
 /** Confirmed GoalFi-routed swap volume per market (micro-units of collateral in). */
-async function volumes(marketIds: string[]): Promise<Map<string, bigint>> {
+/**
+ * Confirmed GoalFi-routed volume per market, in collateral micro-units:
+ * buys count the collateral paid in (`amount`), sells the collateral received (`outputAmount`).
+ */
+export async function volumes(marketIds: string[]): Promise<Map<string, bigint>> {
   if (marketIds.length === 0) return new Map();
-  const rows = await prisma.transaction.groupBy({
-    by: ["marketId"],
-    where: { marketId: { in: marketIds }, status: "CONFIRMED", kind: { in: [...SWAP_KINDS] } },
-    _sum: { amount: true },
-  });
-  return new Map(rows.map((r) => [r.marketId!, r._sum.amount ?? 0n]));
+  const rows = await prisma.$queryRaw<{ marketId: string; volume: bigint }[]>`
+    SELECT "market_id" AS "marketId",
+           COALESCE(SUM(CASE WHEN "transaction_type" IN ('BUY_YES','BUY_NO') THEN "amount" ELSE COALESCE("outputAmount", 0) END), 0)::bigint AS volume
+    FROM "transactions"
+    WHERE "status" = 'CONFIRMED' AND "transaction_type" IN ('BUY_YES','BUY_NO','SELL_YES','SELL_NO') AND "market_id" = ANY(${marketIds})
+    GROUP BY "market_id"`;
+  return new Map(rows.map((r) => [r.marketId, BigInt(r.volume)]));
 }
 
-export type ChallengeSort = "trending" | "new" | "ending" | "participants" | "markets";
+export type ChallengeSort = "trending" | "new" | "ending" | "participants" | "markets" | "volume" | "liquidity";
 
 export async function listChallenges(opts: {
   viewerId: string | null;
@@ -60,17 +63,22 @@ export async function listChallenges(opts: {
       visibleChallengesWhere(opts.viewerId),
       opts.category ? { category: { slug: opts.category } } : {},
       opts.q ? { OR: [{ title: { contains: opts.q, mode: "insensitive" } }, { description: { contains: opts.q, mode: "insensitive" } }] } : {},
-      opts.onlyWithMarkets || opts.sort === "markets" ? { market: { status: { in: ["OPEN", "CLOSED", "RESOLVED"] } } } : {},
+      opts.onlyWithMarkets || opts.sort === "markets" || opts.sort === "volume" || opts.sort === "liquidity" ? { market: { status: { in: ["OPEN", "CLOSED", "RESOLVED"] } } } : {},
       opts.sort === "ending" ? { status: { in: ["ACTIVE", "UPCOMING"] }, endDate: { gt: new Date() } } : {},
     ],
   };
   const orderBy: Prisma.ChallengeOrderByWithRelationInput[] =
     opts.sort === "new" ? [{ createdAt: "desc" }]
     : opts.sort === "ending" ? [{ endDate: "asc" }]
+    : opts.sort === "liquidity" ? [{ market: { liquidity: "desc" } }, { createdAt: "desc" }]
     : [{ participants: { _count: "desc" } }, { createdAt: "desc" }]; // trending & participants
-  const rows = await prisma.challenge.findMany({ where, orderBy, take: opts.take ?? 24, include: challengeCardInclude });
+  const take = opts.take ?? 24;
+  // Volume is an aggregate over confirmed trades, so rank a wider candidate set in memory.
+  const rows = await prisma.challenge.findMany({ where, orderBy, take: opts.sort === "volume" ? 500 : take, include: challengeCardInclude });
   const vol = await volumes(rows.flatMap((r) => (r.market ? [r.market.id] : [])));
-  return rows.map((r) => ({ ...r, volumeMicro: r.market ? vol.get(r.market.id) ?? 0n : 0n }));
+  const out = rows.map((r) => ({ ...r, volumeMicro: r.market ? vol.get(r.market.id) ?? 0n : 0n }));
+  if (opts.sort === "volume") out.sort((a, b) => (b.volumeMicro > a.volumeMicro ? 1 : b.volumeMicro < a.volumeMicro ? -1 : 0));
+  return out.slice(0, take);
 }
 
 export async function platformStats() {

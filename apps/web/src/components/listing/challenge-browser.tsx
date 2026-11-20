@@ -14,6 +14,13 @@ const SORTS: { key: ChallengeSort; label: string }[] = [
   { key: "participants", label: "Most participants" },
   { key: "markets", label: "With markets" },
 ];
+const MARKET_SORTS: { key: ChallengeSort; label: string }[] = [
+  { key: "trending", label: "Trending" },
+  { key: "new", label: "New" },
+  { key: "ending", label: "Ending soon" },
+  { key: "volume", label: "Most traded" },
+  { key: "liquidity", label: "Highest liquidity" },
+];
 
 export type BrowserParams = { q?: string; category?: string; sort?: string };
 
@@ -23,7 +30,8 @@ export async function ChallengeBrowser({ basePath, params, viewerId, marketsOnly
   viewerId: string | null;
   marketsOnly?: boolean;
 }) {
-  const sort = (SORTS.find((s) => s.key === params.sort)?.key ?? "trending") as ChallengeSort;
+  const sorts = marketsOnly ? MARKET_SORTS : SORTS;
+  const sort = (sorts.find((s) => s.key === params.sort)?.key ?? "trending") as ChallengeSort;
   const [items, categories] = await Promise.all([
     listChallenges({ viewerId, q: params.q?.slice(0, 100), category: params.category, sort, take: 48, onlyWithMarkets: marketsOnly }),
     listCategories(),
@@ -50,7 +58,7 @@ export async function ChallengeBrowser({ basePath, params, viewerId, marketsOnly
         <Button type="submit" variant="outline">Search</Button>
       </form>
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {SORTS.filter((s) => !(marketsOnly && s.key === "markets")).map((s) => (
+        {sorts.map((s) => (
           <Link key={s.key} href={href({ sort: s.key })} className={chip(sort === s.key)}>{s.label}</Link>
         ))}
       </div>
@@ -61,7 +69,7 @@ export async function ChallengeBrowser({ basePath, params, viewerId, marketsOnly
         ))}
       </div>
       {items.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{items.map((c) => <ChallengeCard key={c.id} c={c} />)}</div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{items.map((c) => <ChallengeCard key={c.id} c={c} linkTo={marketsOnly ? "market" : "challenge"} />)}</div>
       ) : (
         <EmptyState title={params.q || params.category ? "Nothing matches these filters" : marketsOnly ? "No markets yet" : "No challenges yet"}>
           {marketsOnly ? "Markets appear when challenges launch with an on-chain pm-AMM market." : "Try another filter, or create a challenge."}

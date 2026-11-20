@@ -8,11 +8,12 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 import {
+  TOKEN_PROGRAM_ID,
   AccountLayout,
   createAssociatedTokenAccountIdempotentInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { CU, PROTOCOL_DAO, type PmAmmClient, type SwapDirection } from "@pm-amm/sdk";
+import { CU, PROTOCOL_DAO, deriveNoMint, deriveYesMint, type PmAmmClient, type SwapDirection } from "@pm-amm/sdk";
 
 /**
  * Transaction builders for user-signed actions. They mirror what the SDK's `send.*` helpers
@@ -202,4 +203,38 @@ export async function readHoldings(
   const a = tradeAccounts(client, keys, owner);
   const infos = await client.connection.getMultipleAccountsInfo([a.userCollateral, a.userYes, a.userNo], "confirmed");
   return { collateral: tokenAmount(infos[0]?.data), yes: tokenAmount(infos[1]?.data), no: tokenAmount(infos[2]?.data) };
+}
+
+export interface MarketHolding {
+  market: string;
+  yes: bigint;
+  no: bigint;
+}
+
+/**
+ * All YES/NO balances an owner holds across the given markets, from one RPC call.
+ * Mints are derived from the market PDA (SDK `deriveYesMint` / `deriveNoMint`), so positions
+ * acquired outside GoalFi are found too. Markets with zero balance are omitted.
+ */
+export async function scanOwnerHoldings(
+  connection: Connection,
+  programId: PublicKey,
+  owner: PublicKey,
+  marketAddresses: string[],
+): Promise<MarketHolding[]> {
+  if (marketAddresses.length === 0) return [];
+  const res = await connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }, "confirmed");
+  const byMint = new Map<string, bigint>();
+  for (const { account } of res.value) {
+    const info = (account.data as { parsed?: { info?: { mint?: string; tokenAmount?: { amount?: string } } } }).parsed?.info;
+    if (info?.mint && info.tokenAmount?.amount) byMint.set(info.mint, (byMint.get(info.mint) ?? 0n) + BigInt(info.tokenAmount.amount));
+  }
+  const out: MarketHolding[] = [];
+  for (const m of marketAddresses) {
+    const market = new PublicKey(m);
+    const yes = byMint.get(deriveYesMint(programId, market).toBase58()) ?? 0n;
+    const no = byMint.get(deriveNoMint(programId, market).toBase58()) ?? 0n;
+    if (yes > 0n || no > 0n) out.push({ market: m, yes, no });
+  }
+  return out;
 }
