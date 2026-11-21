@@ -50,6 +50,9 @@ importers:
       '@anchor-lang/core':
         specifier: 1.2.2
         version: 1.2.2(bufferutil@4.2.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+      '@goalfi/bot':
+        specifier: workspace:*
+        version: link:../bot
       '@goalfi/chain':
         specifier: workspace:*
         version: link:../../packages/chain
@@ -101,6 +104,9 @@ importers:
       clsx:
         specifier: 2.1.1
         version: 2.1.1
+      grammy:
+        specifier: 1.46.0
+        version: 1.46.0
       lucide-react:
         specifier: 1.77.0
         version: 1.77.0(@types/react@19.3.0)(react@19.3.1)

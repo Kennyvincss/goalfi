@@ -4,8 +4,7 @@ import { webhookCallback } from "grammy";
 import { prisma } from "@goalfi/db";
 import { chainTick, lifecycleTick, storageFromEnv, type ServiceContext } from "@goalfi/services";
 import { createChainGateway } from "@goalfi/services/chain-gateway";
-import { createBot } from "./bot";
-import { deliverNotifications, deliverOutbox } from "./dispatch";
+import { ALLOWED_UPDATES, BOT_COMMANDS, createBot, deliverNotifications, deliverOutbox } from "./lib";
 
 /**
  * GoalFi persistent process: Telegram bot + background workers (scheduler, tx reconciler,
@@ -24,16 +23,8 @@ async function main() {
     db: prisma, gateway, storage: storageFromEnv(process.env),
     appUrl: process.env.GOALFI_APP_URL ?? "http://localhost:3000", now: () => new Date(),
   };
-  const bot = createBot(token, svc);
-  await bot.api.setMyCommands([
-    { command: "dashboard", description: "Your stats and active challenges" },
-    { command: "challenges", description: "Active challenges" },
-    { command: "markets", description: "Live markets and prices" },
-    { command: "leaderboard", description: "Rankings" },
-    { command: "submit", description: "Submit evidence" },
-    { command: "join", description: "Join this group's GoalFi community" },
-    { command: "help", description: "Help" },
-  ]);
+  const bot = createBot(token, svc, { apiRoot: process.env.TELEGRAM_API_ROOT || undefined });
+  await bot.api.setMyCommands(BOT_COMMANDS);
 
   // Workers. Each tick is idempotent, so overlapping deploys or the web cron are safe.
   const loop = (name: string, ms: number, fn: () => Promise<unknown>) => {
@@ -49,7 +40,7 @@ async function main() {
   loop("notify", 10_000, () => deliverNotifications(bot.api, svc));
   loop("outbox", 10_000, () => deliverOutbox(bot.api, svc));
 
-  const allowed_updates = ["message", "callback_query", "my_chat_member"] as const;
+  const allowed_updates = ALLOWED_UPDATES;
   if (process.env.TELEGRAM_WEBHOOK_URL) {
     const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
     if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET is required in webhook mode");

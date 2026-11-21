@@ -142,7 +142,28 @@ The build doesn't need database access. Pages connect to the database only when 
 
 ---
 
-## 6. Bot + workers on Railway (Docker)
+## 6a. Free option: run the bot inside the website (no Railway)
+
+Instead of a separate always-on server, Telegram can deliver bot messages straight to the website,
+and a free scheduler (cron-job.org) calls the website every minute to run the background jobs.
+
+1. In Vercel → **Settings → Environment Variables**, add:
+   - `TELEGRAM_RUN_ON_VERCEL` = `1`
+   - `TELEGRAM_WEBHOOK_SECRET` = a random string of 16+ letters/numbers (e.g. from a password generator, no symbols)
+   - `CRON_SECRET` = another random string of letters/numbers
+   - make sure `GOALFI_APP_URL` is your exact `https://…` site address
+2. **Redeploy** the site.
+3. Sign up at <https://cron-job.org> (free) → **Create cronjob**:
+   - URL: `https://<your-site>/api/cron/tick`
+   - Schedule: **every 1 minute**
+   - **Advanced → Headers**: add header `Authorization` with value `Bearer <your CRON_SECRET>`
+   - Save. Its history should show status **200**.
+4. Within a minute the scheduler registers the bot with Telegram automatically. Send `/start` to your bot.
+
+Don't also run the Railway bot with the same token: pick one mode. To switch back to Railway later,
+remove `TELEGRAM_RUN_ON_VERCEL` (the standalone bot takes over the connection when it starts).
+
+## 6b. Paid option: bot + workers on Railway (Docker)
 
 The repo ships `apps/bot/Dockerfile`. It builds from the **repo root** and runs
 `pnpm --filter @goalfi/bot start`. It needs no inbound port in the default long-polling mode.
@@ -230,7 +251,10 @@ UPDATE users SET role = 'PLATFORM_ADMIN' WHERE username = 'your_username';
 | `SUPABASE_SERVICE_ROLE_KEY` | ✓ | ✓ | **secret** |
 | `SUPABASE_BUCKET` | ✓ | ✓ | `evidence` |
 | `CRON_SECRET` | optional | | only with Vercel Cron (step 7) |
-| `TELEGRAM_WEBHOOK_URL` / `TELEGRAM_WEBHOOK_SECRET` / `PORT` | | optional | webhook mode only |
+| `TELEGRAM_RUN_ON_VERCEL` | free mode | | `1` to run the bot inside the website (step 6a) |
+| `TELEGRAM_WEBHOOK_SECRET` | free mode | webhook mode | 16+ letters/numbers |
+| `CRON_SECRET` (again) | free mode | | required in free mode; the scheduler sends it |
+| `TELEGRAM_WEBHOOK_URL` / `PORT` | | optional | standalone bot webhook mode only |
 | `GOALFI_ENABLE_MAINNET` | | | **leave unset**. See below |
 
 ---

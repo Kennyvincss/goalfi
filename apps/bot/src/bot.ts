@@ -41,8 +41,9 @@ function errText(e: unknown): string {
   return "Something went wrong. Please try again later.";
 }
 
-export function createBot(token: string, svc: ServiceContext, opts: { botInfo?: UserFromGetMe } = {}) {
-  const bot = new Bot(token, opts.botInfo ? { botInfo: opts.botInfo } : undefined);
+export function createBot(token: string, svc: ServiceContext, opts: { botInfo?: UserFromGetMe; apiRoot?: string } = {}) {
+  // apiRoot: optional self-hosted Telegram Bot API server (https://core.telegram.org/bots/api#using-a-local-bot-api-server).
+  const bot = new Bot(token, { ...(opts.botInfo ? { botInfo: opts.botInfo } : {}), ...(opts.apiRoot ? { client: { apiRoot: opts.apiRoot } } : {}) });
   const url = (path: string) => new URL(path, svc.appUrl).toString();
   const linkHint = () => new InlineKeyboard().url("Link Telegram on GoalFi", url("/settings#telegram"));
 

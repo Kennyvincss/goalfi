@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@goalfi/core", "@goalfi/chain", "@goalfi/services", "@pm-amm/sdk"],
+  transpilePackages: ["@goalfi/core", "@goalfi/chain", "@goalfi/services", "@goalfi/bot", "@pm-amm/sdk"],
   serverExternalPackages: ["@goalfi/db", "@prisma/client", "@prisma/adapter-pg", "pg"],
   poweredByHeader: false,
   turbopack: {

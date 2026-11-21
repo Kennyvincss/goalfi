@@ -3,15 +3,31 @@ import { chainTick, lifecycleTick } from "@goalfi/services";
 import { HttpError } from "@/lib/server/auth";
 import { json, route } from "@/lib/server/api";
 import { services } from "@/lib/server/services";
+import { telegramOnVercel, telegramTick } from "@/lib/server/telegram";
+
+export const maxDuration = 60;
 
 /**
- * Scheduler endpoint for hosts without a persistent worker (e.g. Vercel Cron).
- * The Telegram bot process runs the same ticks on its own; running both is safe (idempotent).
+ * Scheduler endpoint for hosts without a persistent worker: call it every minute from Vercel Cron
+ * (Pro) or a free external scheduler such as cron-job.org, with `Authorization: Bearer <CRON_SECRET>`.
+ * All work is idempotent, so overlapping calls are safe.
  */
 export const GET = route(async (req) => {
   const secret = process.env.CRON_SECRET ?? "";
   const got = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
   if (!secret || got.length !== secret.length || !timingSafeEqual(Buffer.from(got), Buffer.from(secret))) throw new HttpError(401, "Unauthorized");
   const ctx = services();
-  return json({ lifecycle: await lifecycleTick(ctx), chain: await chainTick(ctx) });
+  const step = async <T>(fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error("[cron]", e);
+      return { error: (e as Error).message.slice(0, 300) };
+    }
+  };
+  return json({
+    lifecycle: await step(() => lifecycleTick(ctx)),
+    chain: await step(() => chainTick(ctx)),
+    telegram: telegramOnVercel() ? await step(() => telegramTick()) : "disabled (TELEGRAM_RUN_ON_VERCEL not set)",
+  });
 });
