@@ -18,7 +18,7 @@ CREATE → PARTICIPATE → SUBMIT EVIDENCE → VERIFY → TRADE → RESOLVE → 
 | `packages/core` | Pure business rules: verification, disputes, resolution gate, reputation, streaks, templates |
 | `packages/chain` | pm-AMM integration on `@pm-amm/sdk@0.2.0` (config, market reads, quotes, tx builders, authority ops) |
 | `packages/db` | Prisma 7 schema, migrations, seed |
-| `docs/` | [Architecture](docs/ARCHITECTURE.md) · [pm-AMM integration research](docs/PM_AMM_INTEGRATION.md) · [Roadmap](docs/ROADMAP.md) |
+| `docs/` | **[Deployment guide](docs/DEPLOYMENT.md)** · [Architecture](docs/ARCHITECTURE.md) · [pm-AMM integration research](docs/PM_AMM_INTEGRATION.md) · [Roadmap](docs/ROADMAP.md) |
 
 ## Local setup
 

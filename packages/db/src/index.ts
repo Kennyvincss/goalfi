@@ -5,12 +5,24 @@ export * from "./generated/client";
 
 const globalForPrisma = globalThis as unknown as { __goalfiPrisma?: PrismaClient };
 
-function createClient(): PrismaClient {
+function getClient(): PrismaClient {
+  if (globalForPrisma.__goalfiPrisma) return globalForPrisma.__goalfiPrisma;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+  const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+  // Reuse one client per process (also across hot reloads in dev, and warm serverless invocations).
+  globalForPrisma.__goalfiPrisma = client;
+  return client;
 }
 
-/** Singleton Prisma client (reused across hot reloads in dev). */
-export const prisma: PrismaClient = globalForPrisma.__goalfiPrisma ?? createClient();
-if (process.env.NODE_ENV !== "production") globalForPrisma.__goalfiPrisma = prisma;
+/**
+ * Prisma client singleton, created on first use. Importing this module never needs a database,
+ * so builds (e.g. `next build` on Vercel) work without DATABASE_URL.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getClient();
+    const value = Reflect.get(client, prop, client);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});
