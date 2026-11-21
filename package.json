@@ -1,0 +1,19 @@
+{
+  "name": "goalfi",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "dev": "pnpm --filter @goalfi/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "db:migrate": "pnpm --filter @goalfi/db migrate:dev",
+    "db:seed": "pnpm --filter @goalfi/db seed"
+  },
+  "pnpm": {
+    "overrides": {
+      "@solana/web3.js": "1.99.0"
+    },
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild", "bufferutil", "utf-8-validate", "sharp", "protobufjs", "unrs-resolver"]
+  }
+}

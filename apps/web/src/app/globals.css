@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+/* GoalFi design tokens. YES/NO colours are semantic and used only for outcomes. */
+:root {
+  --background: oklch(0.985 0.003 250);
+  --foreground: oklch(0.21 0.03 260);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.955 0.006 250);
+  --muted-foreground: oklch(0.5 0.025 260);
+  --border: oklch(0.91 0.008 250);
+  --input: oklch(0.89 0.01 250);
+  --primary: oklch(0.52 0.2 275); /* GoalFi indigo */
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.95 0.03 275);
+  --accent-foreground: oklch(0.38 0.17 275);
+  --yes: oklch(0.62 0.16 155);
+  --yes-soft: oklch(0.95 0.05 155);
+  --no: oklch(0.6 0.2 18);
+  --no-soft: oklch(0.96 0.03 18);
+  --warning: oklch(0.75 0.15 75);
+  --ring: oklch(0.52 0.2 275 / 0.45);
+  --radius: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.17 0.02 265);
+    --foreground: oklch(0.96 0.005 250);
+    --card: oklch(0.21 0.022 265);
+    --muted: oklch(0.25 0.02 265);
+    --muted-foreground: oklch(0.7 0.02 260);
+    --border: oklch(0.3 0.02 265);
+    --input: oklch(0.33 0.02 265);
+    --primary: oklch(0.66 0.18 275);
+    --accent: oklch(0.28 0.06 275);
+    --accent-foreground: oklch(0.86 0.08 275);
+    --yes: oklch(0.72 0.16 155);
+    --yes-soft: oklch(0.3 0.06 155);
+    --no: oklch(0.7 0.18 18);
+    --no-soft: oklch(0.3 0.06 18);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-yes: var(--yes);
+  --color-yes-soft: var(--yes-soft);
+  --color-no: var(--no);
+  --color-no-soft: var(--no-soft);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
