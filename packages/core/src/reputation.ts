@@ -9,6 +9,7 @@ export const REPUTATION_POINTS = {
   CHALLENGE_CREATED_SUCCESSFUL: 15, // challenge resolved with ≥ MIN_PARTICIPANTS_FOR_CREATOR_REWARD participants
   FAIR_VERIFICATION: 2, // vote that matched the final decision (after disputes)
   PENALTY_EVIDENCE_OVERTURNED: -10, // an approval of yours was overturned on dispute
+  PENALTY_SELF_BET: -50, // held NO on your own challenge and didn't complete it
 } as const;
 
 export type ReputationActivity = keyof typeof REPUTATION_POINTS;

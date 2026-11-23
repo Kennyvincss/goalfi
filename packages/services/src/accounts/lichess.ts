@@ -5,6 +5,7 @@
  * GET /api/puzzle/activity (ndjson; `date`, `puzzle.id`, `win`; scope puzzle:read).
  */
 import { createHash, randomBytes } from "node:crypto";
+import { MIN_CHESS_PLIES } from "@goalfi/core";
 import { readJson, readNdjson, ProviderError, type ConnectResult, type ProviderClient, type SyncedData } from "./http";
 
 const BASE = "https://lichess.org";
@@ -19,6 +20,20 @@ export interface LichessConfig {
 }
 
 const b64url = (b: Buffer) => b.toString("base64url");
+
+/** Half-moves played, from the space-separated `moves` field. */
+export function gamePlies(game: Record<string, unknown>): number {
+  return typeof game.moves === "string" ? game.moves.split(" ").filter(Boolean).length : 0;
+}
+
+/** Who the user played: the other player's id, "ai:<level>" for the computer, or "anonymous". */
+export function opponentOf(game: Record<string, unknown>, me: string): string {
+  const players = (game.players ?? {}) as Record<string, { user?: { id?: string }; aiLevel?: number } | undefined>;
+  const other = [players.white, players.black].find((p) => p?.user?.id !== me);
+  if (other?.user?.id) return `user:${other.user.id}`;
+  if (other?.aiLevel !== undefined) return `ai:${other.aiLevel}`;
+  return "anonymous";
+}
 
 export function lichessProvider(cfg: LichessConfig): ProviderClient {
   const ok = async (r: Response, what: string) => {
@@ -66,14 +81,16 @@ export function lichessProvider(cfg: LichessConfig): ProviderClient {
       const since = Date.parse(`${startIso}T00:00:00Z`) - 86_400_000, until = Date.parse(`${endIso}T00:00:00Z`) + 86_400_000;
       const events: SyncedData["events"] = [];
       // Lichess asks clients to make one request at a time, so these run sequentially.
-      const g = await f(`${BASE}/api/games/user/${encodeURIComponent(account.externalId)}?${new URLSearchParams({ since: String(since), until: String(until), max: "1000", moves: "false" })}`, {
+      const g = await f(`${BASE}/api/games/user/${encodeURIComponent(account.externalId)}?${new URLSearchParams({ since: String(since), until: String(until), max: "1000", moves: "true" })}`, {
         headers: { authorization: `Bearer ${token}`, accept: "application/x-ndjson" },
       });
       await ok(g, "games");
       for (const game of await readNdjson(g)) {
         if (typeof game.id !== "string" || NOT_PLAYED.has(String(game.status))) continue;
+        // Anti-farming: instant resignations don't count.
+        if (gamePlies(game) < MIN_CHESS_PLIES) continue;
         const at = Number(game.lastMoveAt ?? game.createdAt);
-        if (Number.isFinite(at)) events.push({ metric: "lichess_games", externalId: game.id, occurredAt: new Date(at), value: 1 });
+        if (Number.isFinite(at)) events.push({ metric: "lichess_games", externalId: game.id, occurredAt: new Date(at), value: 1, groupKey: opponentOf(game, account.externalId) });
       }
       const p = await f(`${BASE}/api/puzzle/activity?${new URLSearchParams({ since: String(since), max: "2000" })}`, {
         headers: { authorization: `Bearer ${token}`, accept: "application/x-ndjson" },

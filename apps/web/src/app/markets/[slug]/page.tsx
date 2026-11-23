@@ -4,7 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { prisma } from "@goalfi/db";
 import { PM_AMM_DEPLOYMENTS } from "@goalfi/chain";
 import { formatUsd } from "@goalfi/core";
-import { challengeAccess } from "@goalfi/services";
+import { challengeAccess, challengeMarketLimits, noBetBlockReason } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryIcon } from "@/components/category-icon";
@@ -63,7 +63,11 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   const explorer = (path: string) => `https://solscan.io/${path}${m.cluster === "DEVNET" ? "?cluster=devnet" : ""}`;
   const points = m.snapshots.filter((s) => Number.isFinite(s.yesPrice)).map((s) => ({ t: s.takenAt.getTime(), yes: s.yesPrice }));
   const lastYes = points.at(-1)?.yes ?? null;
+  const limits = await challengeMarketLimits(services(), c.id);
   const cfg: MarketCfg = {
+    noBlockedReason: user ? await noBetBlockReason(services(), user.id, c.id) : null,
+    maxTradeMicro: (BigInt(limits.maxTradeUsdc) * 1_000_000n).toString(),
+    easyToGame: limits.easyToGame,
     marketId: m.id, marketAddress: m.marketAddress, authority: m.authority, programId: m.programId, collateralMint: m.collateralMint,
     symbol, cluster: m.cluster, linkedWallet: user?.walletAddress ?? null, signedIn: !!user,
     winningOutcome: m.status === "RESOLVED" && m.winningOutcome ? (m.winningOutcome === 1 ? "YES" : "NO") : null,

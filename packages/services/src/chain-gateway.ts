@@ -8,6 +8,7 @@ import {
   loadAuthorityKeypair,
   makeConnection,
   newOnchainId,
+  readHoldings,
   resolveBinaryMarket,
   verifyProgramTransaction,
 } from "@goalfi/chain/server";
@@ -66,6 +67,10 @@ export function createChainGateway(env: Record<string, string | undefined> = pro
           no: by[client.noMint(market).toBase58()] ?? 0n,
         },
       };
+    },
+    async readHoldings(p) {
+      const h = await readHoldings(client, { market: new PublicKey(p.market), authority: keypair.publicKey, collateralMint: cfg.collateralMint }, new PublicKey(p.owner));
+      return { yes: h.yes, no: h.no };
     },
     explorerTxUrl: (sig) => explorerTxUrl(cfg, sig),
   };

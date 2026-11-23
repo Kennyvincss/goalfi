@@ -38,9 +38,11 @@ export interface AppMetricDef {
   /** Defaults and bounds for "a day counts at …". */
   daily: { default: number; min: number; max: number; step: number; typical: number };
   decimals: number;
+  /** Set for metrics that are easier to fake: shown to creators and traders, and markets get smaller limits. */
+  easyToGame?: string;
 }
 
-const m = <T extends AppMetricDef>(d: T) => d;
+const m = (d: AppMetricDef): AppMetricDef => d;
 
 export const APP_METRICS = {
   steps: m({
@@ -69,7 +71,8 @@ export const APP_METRICS = {
   }),
   github_contributions: m({
     id: "github_contributions", provider: "GITHUB", source: "daily", unit: "contributions", label: "GitHub contributions", category: "productivity", better: "higher", decimals: 0,
-    description: "Contributions on your GitHub profile calendar per day", daily: { default: 1, min: 1, max: 500, step: 1, typical: 2 },
+    description: "Contributions on your GitHub profile calendar per day",
+    easyToGame: "Contributions are easy to automate (scripted or empty commits). Best for habit-building; markets get smaller limits.", daily: { default: 1, min: 1, max: 500, step: 1, typical: 2 },
   }),
   lichess_games: m({
     id: "lichess_games", provider: "LICHESS", source: "event", unit: "chess games", label: "Chess games", category: "entertainment", better: "higher", decimals: 0,
@@ -81,11 +84,13 @@ export const APP_METRICS = {
   }),
   community_members: m({
     id: "community_members", provider: "GOALFI", source: "level", unit: "members", label: "Community members", category: "community", better: "higher", decimals: 0,
-    description: "Members of the GoalFi community", daily: { default: 1, min: 1, max: 1, step: 1, typical: 0 },
+    description: "Members of the GoalFi community",
+    easyToGame: "New accounts can be created to pad the count. Only established members count (accounts older than a week with a linked wallet, Telegram or reputation), and markets get smaller limits.", daily: { default: 1, min: 1, max: 1, step: 1, typical: 0 },
   }),
   telegram_members: m({
     id: "telegram_members", provider: "TELEGRAM", source: "level", unit: "Telegram members", label: "Telegram group members", category: "community", better: "higher", decimals: 0,
-    description: "Members of the community's linked Telegram group", daily: { default: 1, min: 1, max: 1, step: 1, typical: 0 },
+    description: "Members of the community's linked Telegram group",
+    easyToGame: "Anyone can be added to a Telegram group, including bots and brand-new accounts, and GoalFi can't tell them apart. Markets get smaller limits.", daily: { default: 1, min: 1, max: 1, step: 1, typical: 0 },
   }),
 } as const;
 

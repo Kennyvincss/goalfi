@@ -47,10 +47,12 @@ const cfg = accountsConfigFromEnv("https://goalfi.test", {
 function fakeProviders() {
   const data = {
     steps: {} as Record<string, Record<string, number>>,
+    /** Steps typed in by hand in the Fitbit app: only returned when not asking for wearables-only data. */
+    manualSteps: {} as Record<string, Record<string, number>>,
     workouts: {} as Record<string, { date: string; secs: number }[]>,
-    sleeps: {} as Record<string, { end: string; h: number; m: number; main: boolean; nap?: boolean }[]>,
+    sleeps: {} as Record<string, { end: string; h: number; m: number; main: boolean; nap?: boolean; edited?: boolean }[]>,
     contributions: {} as Record<string, Record<string, number>>,
-    games: {} as Record<string, { id: string; at: number; status: string }[]>,
+    games: {} as Record<string, { id: string; at: number; status: string; plies?: number; vs?: string }[]>,
     puzzles: {} as Record<string, { id: string; at: number; win: boolean }[]>,
     telegramMembers: 0,
   };
@@ -85,7 +87,10 @@ function fakeProviders() {
         const d = (c: { date: { year: number; month: number; day: number } }) => `${c.date.year}-${String(c.date.month).padStart(2, "0")}-${String(c.date.day).padStart(2, "0")}`;
         const [from, to] = [d(body.range.start), d(body.range.end)];
         const type = path.split("/").at(-2)!;
-        const rows = Object.entries(data.steps[who] ?? {}).filter(([date]) => date >= from && date < to);
+        const wearablesOnly = body.dataSourceFamily === "users/me/dataSourceFamilies/google-wearables";
+        const all = { ...(data.steps[who] ?? {}) };
+        if (!wearablesOnly) for (const [d0, v] of Object.entries(data.manualSteps[who] ?? {})) all[d0] = (all[d0] ?? 0) + v;
+        const rows = Object.entries(all).filter(([date]) => date >= from && date < to);
         const value = (v: number) =>
           type === "steps" ? { steps: { countSum: String(v) } }
           : type === "distance" ? { distance: { millimetersSum: String(Math.round(v * 760)) } } // 0.76 m per step
@@ -101,7 +106,7 @@ function fakeProviders() {
         return reply(200, {
           dataPoints: (data.sleeps[who] ?? []).filter((s) => s.end >= from! && s.end < to!).map((s) => ({
             sleep: {
-              metadata: { mainSleep: s.main, nap: s.nap ?? false },
+              metadata: { mainSleep: s.main, nap: s.nap ?? false, manuallyEdited: s.edited ?? false },
               interval: { civilEndTime: civil(s.end, s.h, s.m), startTime: `${s.end}T00:00:00Z`, endTime: `${s.end}T0${s.nap ? 1 : 7}:00:00Z` },
             },
           })),
@@ -142,7 +147,11 @@ function fakeProviders() {
     if (u.host === "lichess.org" && path.startsWith("/api/games/user/")) {
       const who = path.split("/").at(-1)!;
       const since = Number(u.searchParams.get("since")), until = Number(u.searchParams.get("until"));
-      return ndjson((data.games[who] ?? []).filter((g) => g.at >= since && g.at <= until).map((g) => ({ id: g.id, rated: true, status: g.status, createdAt: g.at - 600_000, lastMoveAt: g.at })));
+      const moves = (n: number) => Array.from({ length: n }, () => "e4").join(" ");
+      return ndjson((data.games[who] ?? []).filter((g) => g.at >= since && g.at <= until).map((g) => ({
+        id: g.id, rated: true, status: g.status, createdAt: g.at - 600_000, lastMoveAt: g.at, moves: moves(g.plies ?? 40),
+        players: { white: { user: { id: who, name: who }, rating: 1500 }, black: g.vs === "ai" ? { aiLevel: 3 } : { user: { id: g.vs ?? `opp-${g.id}`, name: "x" }, rating: 1500 } },
+      })));
     }
     if (u.host === "lichess.org" && path === "/api/puzzle/activity") {
       const who = user(init)!.toLowerCase();
@@ -235,6 +244,7 @@ describe("connected accounts", () => {
 
   it("Google: connecting stores encrypted tokens and pulls recent history for every metric", async () => {
     P.data.steps[p1.username] = { [yesterday]: 9000 };
+    P.data.manualSteps[p1.username] = { [yesterday]: 50_000 }; // typed in by hand: must not count
     P.data.workouts[p1.username] = [{ date: yesterday, secs: 2400 }];
     P.data.sleeps[p1.username] = [{ end: yesterday, h: 6, m: 10, main: true }];
     await connectAccount(ctx, p1, cfg, "GOOGLE_HEALTH", `g-${p1.username}`, undefined, P.f);
@@ -320,6 +330,7 @@ describe("connected accounts", () => {
     P.data.sleeps[p1.username] = [
       { end: d1, h: 6, m: 20, main: true }, { end: d1, h: 15, m: 0, main: false, nap: true },
       { end: d2, h: 6, m: 45, main: true }, { end: d3, h: 6, m: 30, main: true },
+      { end: d2, h: 5, m: 0, main: true, edited: true }, // edited by hand to look early: ignored
     ];
     P.data.workouts[p1.username] = [{ date: d1, secs: 3600 }, { date: d1, secs: 120 }, { date: d2, secs: 1500 }, { date: d3, secs: 2000 }];
     clock.now = new Date(start.getTime() + 3 * DAY + HOUR);
@@ -386,6 +397,9 @@ describe("connected accounts", () => {
       { id: "g1", at: t + HOUR, status: "resign" }, { id: "g2", at: t + 2 * HOUR, status: "aborted" },
       { id: "g3", at: t + 23 * HOUR, status: "outoftime" }, // 21:00 UTC = 23:00 local, still day 1
       { id: "g4", at: t + 30 * HOUR, status: "draw" }, { id: "g5", at: t + 31 * HOUR, status: "mate" }, { id: "g6", at: t + 32 * HOUR, status: "started" },
+      // Anti-farming: an instant resignation, and a fourth game vs the same friend on day 2, don't count.
+      { id: "short", at: t + 33 * HOUR, status: "resign", plies: 2 },
+      ...["f1", "f2", "f3", "f4"].map((id, i) => ({ id, at: t + (34 + i) * HOUR, status: "resign", vs: "friend" })),
     ];
     P.data.puzzles.magnus = [
       { id: "p1", at: t + HOUR, win: true }, { id: "p2", at: t + 2 * HOUR, win: true }, { id: "p3", at: t + 3 * HOUR, win: false },
@@ -394,18 +408,19 @@ describe("connected accounts", () => {
     clock.now = new Date(t + 2 * DAY + HOUR);
     await accountsTick(ctx, cfg, P.f);
     const games = await prisma.evidence.findMany({ where: { challengeId: c.id }, orderBy: { activityDate: "asc" } });
-    expect(games.map((e) => Number(e.progressValue))).toEqual([2, 2]); // g1+g3 on day 1, g4+g5 on day 2
+    expect(games.map((e) => Number(e.progressValue))).toEqual([2, 5]); // g1+g3 on day 1; g4+g5 + 3 of 4 vs "friend" on day 2
     expect(iso(games[0]!.activityDate!)).toBe(iso(new Date(t + 12 * HOUR))); // labelled with the local date
     expect(await prisma.evidence.count({ where: { challengeId: p.id } })).toBe(1); // day 2 had 1 solved puzzle
     advance(2 * HOUR);
     await lifecycleTick(ctx);
     await autoSettleTick(ctx);
-    expect(await outcome(c.id)).toBe("NO"); // 4 of 5
+    expect(await outcome(c.id)).toBe("YES"); // 7 counted games ≥ 5
     expect(await outcome(p.id)).toBe("NO");
   });
 
   it("community size: GoalFi members and Telegram group members, recorded as one live value", async () => {
     const comm = await prisma.community.create({ data: { slug: `crew-${Date.now()}`, name: "Crew", creatorId: admin.id, telegramChatId: -1001234n } });
+    for (const u of [admin, p1]) await prisma.user.update({ where: { id: u.id }, data: { reputationScore: { increment: 1 } } });
     await prisma.communityMember.createMany({ data: [admin, p1].map((u, i) => ({ communityId: comm.id, userId: u.id, role: i === 0 ? "OWNER" : "MEMBER" })) });
     const start = new Date(clock.now.getTime() - MIN);
     const end = new Date(start.getTime() + 2 * DAY);
@@ -419,7 +434,10 @@ describe("connected accounts", () => {
     });
     P.data.telegramMembers = 80;
     await accountsTick(ctx, cfg, P.f);
-    await prisma.communityMember.createMany({ data: [p2, p3].map((u) => ({ communityId: comm.id, userId: u.id, role: "MEMBER" as const })) });
+    // Two established members (linked wallets) count; a bare new account doesn't.
+    for (const [i, u] of [p2, p3].entries()) await prisma.user.update({ where: { id: u.id }, data: { walletAddress: `Wallet${i}${Date.now()}` } });
+    const bare = await makeUser("bare");
+    await prisma.communityMember.createMany({ data: [p2, p3, bare].map((u) => ({ communityId: comm.id, userId: u.id, role: "MEMBER" as const })) });
     P.data.telegramMembers = 104;
     advance(HOUR);
     await accountsTick(ctx, cfg, P.f);

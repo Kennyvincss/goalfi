@@ -18,7 +18,7 @@ export interface SyncedData {
   /** Totals per local calendar day. */
   daily: { metric: string; date: string; value: number }[];
   /** Timestamped activities, counted per challenge day. */
-  events: { metric: string; externalId: string; occurredAt: Date; value: number }[];
+  events: { metric: string; externalId: string; occurredAt: Date; value: number; groupKey?: string | null }[];
 }
 
 export interface ConnectResult extends TokenSet {

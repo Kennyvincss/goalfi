@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ACCOUNT_PROVIDERS, APP_METRICS, CHALLENGE_TEMPLATES, suggestChallenges, type AppMetricId } from "@goalfi/core";
+import { ACCOUNT_PROVIDERS, APP_METRICS, CHALLENGE_TEMPLATES, marketLimits, suggestChallenges, type AppMetricId } from "@goalfi/core";
 import { listAccounts, recentDaily, telegramMemberCount } from "@goalfi/services";
 import { accountsConfig } from "@/lib/server/accounts";
 import { prisma } from "@goalfi/db";
@@ -43,6 +43,11 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
     if (s) suggestion = { ...s, communityId: s.scope === "group" ? c?.id : undefined };
   }
   const gw = ctx.gateway;
+  // Opening-liquidity limits for this creator (platform admins have none).
+  const liquidityCaps = user.role === "PLATFORM_ADMIN" ? null : {
+    standard: marketLimits({ easyToGame: false, creatorReputation: user.reputationScore, trustedParticipants: 0 }).maxInitialLiquidityUsdc,
+    easy: marketLimits({ easyToGame: true, creatorReputation: user.reputationScore, trustedParticipants: 0 }).maxInitialLiquidityUsdc,
+  };
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="text-3xl font-bold tracking-tight">Create a challenge</h1>
@@ -53,6 +58,7 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
           categories={categories}
           communities={communities.map((c) => ({ id: c.id, name: c.name }))}
           apps={apps}
+          liquidityCaps={liquidityCaps}
           suggestion={suggestion}
           collateralSymbol={gw?.collateralSymbol ?? "USDC"}
           marketsAvailable={!!gw}

@@ -11,3 +11,4 @@ export * from "./lifecycle";
 export * from "./trading";
 export * from "./app-metrics";
 export * from "./app-suggestions";
+export * from "./integrity";

@@ -185,10 +185,12 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
 }
 
 export function ChallengeBuilder({
-  templates, categories, communities, collateralSymbol, marketsAvailable, apps, suggestion,
+  templates, categories, communities, collateralSymbol, marketsAvailable, apps, suggestion, liquidityCaps,
 }: {
   /** Per provider: configured on this server, and connected by this user. */
   apps: Record<string, { available: boolean; connected: boolean; telegram?: boolean }>;
+  /** Max opening liquidity for this creator; null = no limit (platform admin). */
+  liquidityCaps: { standard: number; easy: number } | null;
   suggestion: BuilderSuggestion | null;
   templates: ChallengeTemplate[];
   categories: { slug: string; name: string }[];
@@ -300,15 +302,23 @@ export function ChallengeBuilder({
   const hint = (text: string) => <p className="text-xs text-muted-foreground">{text}</p>;
 
   /** Validate the current step before moving on; jump back to the first step with a problem on submit. */
+  const easyToGame = app ? metric.easyToGame ?? null : null;
+  const liquidityCap = liquidityCaps ? (easyToGame ? liquidityCaps.easy : liquidityCaps.standard) : null;
+  const check = (st: number) => {
+    const errs = validateStep(st, f, verifierCount);
+    if (st === 4 && f.marketType === "BINARY" && liquidityCap !== null && f.initialLiquidityUsdc > liquidityCap)
+      errs.initialLiquidityUsdc = `At most ${liquidityCap} ${collateralSymbol} for you right now${easyToGame ? " (this metric is easier to game)" : ""}. The limit grows with your reputation.`;
+    return errs;
+  };
   function next() {
-    const errs = validateStep(step, f, verifierCount);
+    const errs = check(step);
     setStepErrors(errs);
     if (Object.keys(errs).length) return;
     setStep(step + 1);
   }
   function goToFirstProblem(): boolean {
     for (let st = 1; st <= 4; st++) {
-      const errs = validateStep(st, f, verifierCount);
+      const errs = check(st);
       if (Object.keys(errs).length) {
         setStepErrors(errs);
         setStep(st);
@@ -429,6 +439,8 @@ export function ChallengeBuilder({
                       <Link href="/settings#accounts" className="text-primary underline-offset-4 hover:underline">Connect now</Link>
                     </p>
                   )}
+                  {metric.easyToGame && <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning"><b>Easier to game.</b> {metric.easyToGame}</p>}
+                  {metric.provider === "GOOGLE_HEALTH" && <p className="text-xs text-muted-foreground">Only data recorded by a Fitbit or Pixel Watch counts: steps or workouts typed in by hand don’t.</p>}
                   {metric.provider === "TELEGRAM" && <p className="text-xs text-muted-foreground">The community must be connected to its Telegram group (Telegram page) so the bot can count members.</p>}
                 </div>
               )}
@@ -568,7 +580,7 @@ export function ChallengeBuilder({
                     <input id="px" type="range" min={1} max={99} value={f.initialPricePct} onChange={(e) => set("initialPricePct", Number(e.target.value))} className="w-full accent-[var(--primary)]" />
                   </div>
                   <div className="space-y-1.5"><Label htmlFor="liq">Initial liquidity ({collateralSymbol})</Label><Input id="liq" type="number" min={1} value={f.initialLiquidityUsdc} onChange={(e) => set("initialLiquidityUsdc", Number(e.target.value))} />{field("initialLiquidityUsdc")}
-                    <p className="text-xs text-muted-foreground">You fund this from your own wallet after confirming. The market goes live once it’s funded.</p></div>
+                    <p className="text-xs text-muted-foreground">You fund this from your own wallet after confirming. The market goes live once it’s funded.{liquidityCap !== null && ` Up to ${liquidityCap} ${collateralSymbol} for you right now; the limit grows with your reputation.`}</p></div>
                 </div>
                 <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                   <li>Trading closes at the challenge end date; markets can run at most 30 days.</li>

@@ -1,3 +1,5 @@
+import { audit } from "./audit";
+import { flagSelfBet, noBetBlockReason } from "./integrity";
 import { publishedStatus } from "@goalfi/core";
 import type { TxKind } from "@goalfi/db";
 import { z } from "zod";
@@ -110,6 +112,11 @@ export async function reconcileTransaction(ctx: ServiceContext, txId: string) {
     const after = await ctx.db.market.findUniqueOrThrow({ where: { id: market.id }, include: { challenge: true } });
     if (tx.kind === "DEPOSIT_LIQUIDITY" && after.status === "OPEN") await afterPublish(ctx, after.challengeId);
     const url = link(ctx, `/challenges/${after.challenge.slug}`);
+    if (tx.kind === "BUY_NO" && (await noBetBlockReason(ctx, tx.userId!, after.challengeId))) {
+      // GoalFi's trade screen doesn't offer this, but a wallet can sign anything: record it publicly.
+      if (!(await flagSelfBet(ctx, after.challengeId, tx.userId!, "goalfi_trade")))
+        await audit(ctx.db, tx.userId!, "market.self_bet", "Challenge", after.challengeId, { source: "goalfi_trade", role: "creator" });
+    }
     if (isBuy || isSell)
       await notify(ctx.db, [tx.userId!], { type: "TRADE_CONFIRMED", message: `Trade confirmed: ${tx.kind.replace("_", " ").toLowerCase()} in “${after.challenge.title}”`, link: url, dedupKey: `TX:${tx.signature}` });
     if (tx.kind === "CLAIM_WINNINGS")

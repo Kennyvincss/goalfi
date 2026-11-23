@@ -47,5 +47,8 @@ export class FakeGateway implements MarketGateway {
     const m = this.markets.get(address)!;
     Object.assign(m, { hasLiquidity: true, yesPrice, poolValue, reserveYes: 1, reserveNo: 1, lEff: 1 });
   }
+  /** Tests set what a wallet holds on a market ("owner:market" → shares). */
+  holdings = new Map<string, { yes: bigint; no: bigint }>();
+  async readHoldings(p: { owner: string; market: string }) { return this.holdings.get(`${p.owner}:${p.market}`) ?? { yes: 0n, no: 0n }; }
   explorerTxUrl(sig: string) { return `https://solscan.io/tx/${sig}?cluster=devnet`; }
 }

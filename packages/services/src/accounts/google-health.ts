@@ -16,6 +16,11 @@ const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const API = "https://health.googleapis.com/v4/users/me/dataTypes";
+/**
+ * Only data recorded by Fitbit / Pixel Watch devices. Per the API, this family "excludes manually
+ * logged data", so nobody can type in steps or workouts.
+ */
+export const WEARABLES_ONLY = "users/me/dataSourceFamilies/google-wearables";
 /** Workouts shorter than this don't count (e.g. auto-detected walks to the car). */
 export const MIN_WORKOUT_SECONDS = 10 * 60;
 
@@ -93,7 +98,8 @@ export function wakeTimes(points: Record<string, unknown>[]): Map<string, number
     const meta = (s?.metadata ?? {}) as Record<string, unknown>;
     const end = interval?.civilEndTime as Civil | undefined;
     const date = isoFromCivil(end);
-    if (!s || !date || meta.nap === true) continue;
+    // Naps don't count, and neither do sleeps the user edited by hand.
+    if (!s || !date || meta.nap === true || meta.manuallyEdited === true) continue;
     const wake = (end?.time?.hours ?? 0) * 60 + (end?.time?.minutes ?? 0);
     const length = Date.parse(String(interval?.endTime)) - Date.parse(String(interval?.startTime));
     const cand = { main: meta.mainSleep === true, length: Number.isFinite(length) ? length : 0, wake };
@@ -151,7 +157,7 @@ export function googleHealthProvider(cfg: GoogleHealthConfig): ProviderClient {
         for (let page = 0; page < 10; page++) {
           const d = await call(f, `${API}/${spec.dataType}/dataPoints:dailyRollUp`, token, {
             method: "POST",
-            body: JSON.stringify({ range: { start: civil(startIso), end: civil(endIso) }, windowSizeDays: 1, ...(pageToken ? { pageToken } : {}) }),
+            body: JSON.stringify({ range: { start: civil(startIso), end: civil(endIso) }, windowSizeDays: 1, dataSourceFamily: WEARABLES_ONLY, ...(pageToken ? { pageToken } : {}) }),
           });
           const parsed = parseDailyRollup(d, spec.metric);
           daily.push(...parsed.rows.map((r) => ({ metric: spec.metric, ...r })));
@@ -163,7 +169,7 @@ export function googleHealthProvider(cfg: GoogleHealthConfig): ProviderClient {
         const points: Record<string, unknown>[] = [];
         let pageToken: string | null = null;
         for (let page = 0; page < 20; page++) {
-          const q = new URLSearchParams({ filter, pageSize: "25", ...(pageToken ? { pageToken } : {}) });
+          const q = new URLSearchParams({ filter, pageSize: "25", dataSourceFamily: WEARABLES_ONLY, ...(pageToken ? { pageToken } : {}) });
           const d = await call(f, `${API}/${dataType}/dataPoints?${q}`, token);
           points.push(...((Array.isArray(d.dataPoints) ? d.dataPoints : []) as Record<string, unknown>[]));
           pageToken = typeof d.nextPageToken === "string" && d.nextPageToken ? d.nextPageToken : null;
