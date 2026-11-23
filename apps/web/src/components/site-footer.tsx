@@ -26,6 +26,8 @@ export function SiteFooter() {
           <div className="font-medium">Learn</div>
           <Link href="/#faq" className="block text-muted-foreground hover:text-foreground">FAQ</Link>
           <a href="https://predict-pm-amm.dev" className="block text-muted-foreground hover:text-foreground" rel="noreferrer" target="_blank">Predict pm-AMM</a>
+          <Link href="/privacy" className="block text-muted-foreground hover:text-foreground">Privacy</Link>
+          <Link href="/terms" className="block text-muted-foreground hover:text-foreground">Terms</Link>
         </div>
       </div>
     </footer>
