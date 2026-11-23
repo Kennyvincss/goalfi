@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletButton } from "@/components/wallet/wallet-button";
-import { buildSwapTx, estimateBuy, quoteTrade, swapDirection, type TradeAction, type TradeSide } from "@goalfi/chain/browser";
+import { buildSwapTx, describeFeePayer, estimateBuy, explainFailure, quoteTrade, swapDirection, type TradeAction, type TradeSide } from "@goalfi/chain/browser";
 import { DEFAULT_SLIPPAGE_BPS, formatProbability, fromMicro, minOutWithSlippage, parseAmount, SLIPPAGE_PRESETS_BPS } from "@goalfi/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,7 +14,10 @@ import { explorerTx, friendlyError, useLiveMarket, useSendTx } from "./live-mark
 const fmt = (micro: bigint | number, dp = 2) =>
   (Number(micro) / 1e6).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: Math.max(dp, 4) });
 
-type Quote = { amountIn: bigint; amountOut: bigint; key: string } | { error: string; key: string } | null;
+type Quote =
+  | { amountIn: bigint; amountOut: bigint; key: string }
+  | { error: string; key: string; /** Solana refused the test-run itself (not the market program): allow an estimate-based trade. */ runtime: boolean }
+  | null;
 
 export function TradePanel() {
   const { cfg, client, keys, view, holdings, rpcError, loaded, walletOk } = useLiveMarket();
@@ -45,9 +48,14 @@ export function TradePanel() {
       setQuoting(true);
       try {
         const q = await quoteTrade(client, { owner, keys, action, side, amountIn: amount });
-        setQuote(q.ok && q.amountOut > 0n ? { amountIn: amount, amountOut: q.amountOut, key: quoteKey } : { error: q.error ? friendlyError({ message: q.logs.join("\n") || q.error, logs: q.logs }) : "No output", key: quoteKey });
+        if (q.ok && q.amountOut > 0n) setQuote({ amountIn: amount, amountOut: q.amountOut, key: quoteKey });
+        else if (q.runtimeError) {
+          // Solana refused the test-run before the market program ran: diagnose the wallet account.
+          const diag = await describeFeePayer(client.connection, owner).catch(() => "");
+          setQuote({ error: `${explainFailure(q.error ?? "", q.logs, cfg.symbol)} (${q.error}) ${diag}`.trim(), key: quoteKey, runtime: true });
+        } else setQuote({ error: q.error ? friendlyError({ message: q.logs.join("\n") || q.error, logs: q.logs }) : "No output", key: quoteKey, runtime: false });
       } catch (e) {
-        setQuote({ error: friendlyError(e), key: quoteKey });
+        setQuote({ error: friendlyError(e), key: quoteKey, runtime: false });
       } finally {
         setQuoting(false);
       }
@@ -57,7 +65,12 @@ export function TradePanel() {
   }, [quoteKey, walletOk, view?.tradingOpen]);
 
   const validQuote = quote && "amountOut" in quote && quote.key === quoteKey ? quote : null;
-  const minOut = validQuote ? minOutWithSlippage(validQuote.amountOut, slippage) : null;
+  // Fallback when the exact test-run can't be done: protect a buy with the curve estimate minus slippage
+  // and an extra 2% margin. The program enforces this minimum on-chain, and the wallet still simulates.
+  const fallback = !validQuote && action === "BUY" && estimate && quote && "runtime" in quote && quote.runtime && quote.key === quoteKey;
+  const minOut = validQuote
+    ? minOutWithSlippage(validQuote.amountOut, slippage)
+    : fallback ? minOutWithSlippage(BigInt(Math.floor(estimate!.sharesOut)), slippage + 200) : null;
   const overBalance = action === "SELL" && owned !== null && amount !== null && amount > owned;
   const overCollateral = action === "BUY" && holdings && amount !== null && amount > holdings.collateral;
 
@@ -68,6 +81,7 @@ export function TradePanel() {
       () => buildSwapTx(client, { owner, keys, direction: swapDirection(action, side), amountIn: amount, minOutput: minOut }),
       `${action}_${side}` as "BUY_YES",
       `${action === "BUY" ? "Buy" : "Sell"} ${side}`,
+      action === "BUY" ? amount : undefined,
     );
     setInput("");
   }
@@ -152,7 +166,7 @@ export function TradePanel() {
                   <div className="flex justify-between"><dt className="text-muted-foreground">Minimum ({slippage / 100}% slippage)</dt><dd>{fmt(minOut)} {action === "BUY" ? "shares" : cfg.symbol}</dd></div>
                 )}
                 <div className="pt-1 text-xs text-muted-foreground">
-                  {quoting ? "Simulating against the pm-AMM program…" : validQuote ? "✓ Exact quote simulated against the deployed program." : quote && "error" in quote ? <span className="text-no">Quote failed: {quote.error}</span> : action === "BUY" ? "Estimate from curve math. Connect your linked wallet for an exact quote." : "Connect your linked wallet for a quote."}
+                  {quoting ? "Simulating against the pm-AMM program…" : validQuote ? "✓ Exact quote simulated against the deployed program." : quote && "error" in quote ? <span className="text-no">Quote failed: {quote.error}{fallback && <span className="block text-muted-foreground">You can still buy with the estimated minimum below; Phantom checks the real transaction before you sign.</span>}</span> : action === "BUY" ? "Estimate from curve math. Connect your linked wallet for an exact quote." : "Connect your linked wallet for a quote."}
                 </div>
               </dl>
             )}
@@ -174,8 +188,8 @@ export function TradePanel() {
               <p className="text-sm text-warning">Switch to your linked wallet ({cfg.linkedWallet.slice(0, 4)}…{cfg.linkedWallet.slice(-4)}) so the trade is credited to your account.</p>
             ) : (
               <Button className="w-full" size="lg" variant={side === "YES" ? "yes" : "no"} onClick={execute}
-                disabled={!validQuote || !!stage || !!overBalance || !!overCollateral}>
-                {stage ?? (overBalance ? "Not enough shares" : overCollateral ? `Not enough ${cfg.symbol}` : `${action === "BUY" ? "Buy" : "Sell"} ${side}`)}
+                disabled={(!validQuote && !fallback) || !minOut || !!stage || !!overBalance || !!overCollateral}>
+                {stage ?? (overBalance ? "Not enough shares" : overCollateral ? `Not enough ${cfg.symbol}` : fallback ? `Buy ${side} (estimated minimum)` : `${action === "BUY" ? "Buy" : "Sell"} ${side}`)}
               </Button>
             )}
           </>

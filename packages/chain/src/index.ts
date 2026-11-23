@@ -6,3 +6,4 @@ export * from "./trade";
 export { walletLinkMessage, verifyWalletSignature } from "./verify";
 export { PmAmmClient, mapAnchorError, PROTOCOL_DAO, SWAP_FEE_BPS as SDK_SWAP_FEE_BPS } from "@pm-amm/sdk";
 export type { MarketAccount, SwapDirection, Side } from "@pm-amm/sdk";
+export * from "./preflight";

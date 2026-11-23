@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useRouter } from "next/navigation";
 import { PublicKey, type Transaction } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { fetchMarketView, mapAnchorError, PmAmmClient, readHoldings, type MarketKeys, type MarketView } from "@goalfi/chain/browser";
+import { fetchMarketView, mapAnchorError, PmAmmClient, preflightTransaction, readHoldings, type MarketKeys, type MarketView } from "@goalfi/chain/browser";
 
 export interface MarketCfg {
   marketId: string;
@@ -94,9 +94,13 @@ const FRIENDLY: Record<string, string> = {
 export function friendlyError(e: unknown): string {
   const mapped = mapAnchorError(e);
   if (mapped) return FRIENDLY[mapped.name] ?? mapped.msg ?? mapped.name;
-  const msg = (e as Error)?.message ?? String(e);
-  if (/User rejected|rejected the request/i.test(msg)) return "You cancelled the transaction in your wallet.";
-  if (/insufficient lamports|insufficient funds for fee|0x1\b/i.test(msg)) return "Not enough SOL (fees) or tokens in your wallet.";
+  // Wallet adapters wrap the wallet's own error: look inside for the real message.
+  const inner = (e as { error?: { message?: string } })?.error?.message;
+  const msg = [(e as Error)?.message, inner].filter(Boolean).join(" ") || String(e);
+  if (/User rejected|rejected the request|cancel/i.test(msg)) return "You cancelled the transaction in your wallet.";
+  if (/insufficient lamports|insufficient funds for fee|no record of a prior credit/i.test(msg)) return "Your wallet needs a little devnet SOL for network fees. Get some free at faucet.solana.com.";
+  if (/Unexpected error|simulation failed/i.test(msg))
+    return "Your wallet refused the transaction. Check that Phantom is on Devnet (Settings → Developer Settings → Testnet Mode → Solana Devnet) and that you have devnet SOL and enough test USDC.";
   return msg.length > 200 ? msg.slice(0, 200) + "…" : msg;
 }
 
@@ -111,12 +115,21 @@ export function useSendTx() {
   const [stage, setStage] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string; sig?: string } | null>(null);
 
-  async function send(build: () => Promise<Transaction>, kind: TxKind, label: string) {
+  async function send(build: () => Promise<Transaction>, kind: TxKind, label: string, spendMicro?: bigint) {
     setResult(null);
     let sig: string | undefined;
     try {
       setStage("Preparing…");
       const tx = await build();
+      setStage("Checking your wallet…");
+      const problem = await preflightTransaction(connection, wallet.publicKey!, tx, {
+        symbol: cfg.symbol,
+        ...(spendMicro ? { spend: { mint: new PublicKey(cfg.collateralMint), amountMicro: spendMicro, symbol: cfg.symbol } } : {}),
+      });
+      if (problem) {
+        setResult({ ok: false, text: problem });
+        return;
+      }
       setStage("Approve in your wallet…");
       sig = await wallet.sendTransaction(tx, connection);
       setStage("Confirming on Solana…");

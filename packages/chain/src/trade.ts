@@ -174,6 +174,8 @@ export async function simulateBalanceDeltas(
 export interface TradeQuote {
   ok: boolean;
   error: string | null;
+  /** True when Solana rejected the transaction before the program ran (e.g. fee-payer problems). */
+  runtimeError: boolean;
   action: TradeAction;
   side: TradeSide;
   amountIn: bigint;
@@ -191,7 +193,9 @@ export async function quoteTrade(
   const tx = await buildSwapTx(client, { owner: p.owner, keys: p.keys, direction, amountIn: p.amountIn, minOutput: 0n });
   const d = await simulateBalanceDeltas(client.connection, tx, tradeAccounts(client, p.keys, p.owner));
   const amountOut = !d.ok ? 0n : p.action === "BUY" ? (p.side === "YES" ? d.yes : d.no) : d.collateral;
-  return { ok: d.ok, error: d.error, action: p.action, side: p.side, amountIn: p.amountIn, amountOut, logs: d.logs };
+  // A plain string error (not {InstructionError: …}) means the runtime refused the transaction itself.
+  const runtimeError = !d.ok && !!d.error && !d.error.includes("InstructionError");
+  return { ok: d.ok, error: d.error, runtimeError, action: p.action, side: p.side, amountIn: p.amountIn, amountOut, logs: d.logs };
 }
 
 /** Owner's YES/NO/collateral balances for a market (raw micro-units). */

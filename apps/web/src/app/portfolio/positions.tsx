@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletButton } from "@/components/wallet/wallet-button";
-import { buildClaimWinningsTx, PmAmmClient, scanOwnerHoldings, type MarketHolding } from "@goalfi/chain/browser";
+import { buildClaimWinningsTx, PmAmmClient, preflightTransaction, scanOwnerHoldings, type MarketHolding } from "@goalfi/chain/browser";
 import { formatProbability, valuePosition } from "@goalfi/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,11 @@ export function Positions({ wallet, markets, programId, collateralMint, symbol, 
     try {
       const keys = { market: new PublicKey(m.address), authority: new PublicKey(m.authority), collateralMint: new PublicKey(collateralMint) };
       const tx = await buildClaimWinningsTx(client, { owner: w.publicKey, keys });
+      const problem = await preflightTransaction(connection, w.publicKey, tx, { symbol });
+      if (problem) {
+        setMsg({ ok: false, text: problem });
+        return;
+      }
       const sig = await w.sendTransaction(tx, connection);
       await connection.confirmTransaction({ signature: sig, blockhash: tx.recentBlockhash!, lastValidBlockHeight: tx.lastValidBlockHeight! }, "confirmed");
       const r = await fetch("/api/transactions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signature: sig, marketId: m.id, kind: "CLAIM_WINNINGS" }) });

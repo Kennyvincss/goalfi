@@ -48,7 +48,7 @@ async function main() {
   const yesMint = client.yesMint(market), noMint = client.noMint(market);
   const endTs = Math.floor(Date.now() / 1000) + 3 * 86400;
   const r = reservesAt(50_000_000, 0.62);
-  const state = { resolved: false, yesBal: 0n, colBal: 100_000_000n };
+  const state = { resolved: false, yesBal: 0n, colBal: 100_000_000n, simRuntimeError: false };
   const SIM_OUT = 15_123_456n;
 
   async function marketData(): Promise<string> {
@@ -106,7 +106,9 @@ async function main() {
       case "getMultipleAccounts": return { ...ctx, value: (p[0] as string[]).map((a) => wrap(acct(a))) };
       case "getLatestBlockhash": return { ...ctx, value: { blockhash: bs58.encode(Buffer.alloc(32, 7)), lastValidBlockHeight: 1_000_000 } };
       case "getBlockHeight": return 10;
+      case "getBalance": return { ...ctx, value: 2_000_000_000 }; // 2 SOL for fees (pre-flight check)
       case "simulateTransaction":
+        if (state.simRuntimeError) return { ...ctx, value: { err: "InvalidAccountForFee", logs: [], accounts: null, unitsConsumed: 0, returnData: null } };
         return { ...ctx, value: { err: null, logs: ["Program log: simulated"], unitsConsumed: 60_000, returnData: null,
           accounts: [tokenAcct(MINT, trader.publicKey, state.colBal - 10_000_000n), tokenAcct(yesMint, trader.publicKey, state.yesBal + SIM_OUT), null].map((d) => wrap(d)) } };
       case "sendTransaction": sentSig = bs58.encode(randomBytes(64)); state.yesBal += SIM_OUT; state.colBal -= 10_000_000n; return sentSig;
@@ -202,6 +204,25 @@ async function main() {
 
     await page.getByText("Your position").waitFor({ timeout: 20000 });
     ok("position panel shows on-chain YES shares", await page.getByText("15.1235").first().isVisible());
+
+    // Solana refuses the test-run itself (seen live on devnet): diagnose + allow a protected buy.
+    state.simRuntimeError = true;
+    await page.locator("#amt").fill("5");
+    await page.getByText(/can't pay network fees/).first().waitFor({ timeout: 10000 });
+    const diag = await page.getByText(/Quote failed/).first().innerText();
+    ok("runtime quote failure shows the wallet diagnosis", /InvalidAccountForFee/.test(diag) && /Wallet \w{4}…\w{4}/.test(diag), diag.slice(0, 160));
+    const fb = page.getByRole("button", { name: "Buy YES (estimated minimum)" });
+    ok("protected fallback buy offered", await fb.isEnabled());
+    await fb.click();
+    await page.getByText(/Buy YES confirmed/).first().waitFor({ timeout: 20000 });
+    const signed2 = (await page.evaluate(() => (window as unknown as { __signed: number[][] }).__signed)) as number[][];
+    const d2 = Buffer.from(Transaction.from(Buffer.from(signed2[signed2.length - 1]!)).instructions.find((i) => i.programId.equals(PROGRAM))!.data);
+    const min2 = d2.readBigUInt64LE(17);
+    ok("fallback buy still carries an on-chain minimum", d2.readBigUInt64LE(9) === 5_000_000n && min2 > 0n && min2 < 10_000_000n, min2);
+    state.simRuntimeError = false;
+    // Undo the mock balance change from this extra buy so the portfolio/claim checks below see one position.
+    state.yesBal -= SIM_OUT;
+    state.colBal += 10_000_000n;
 
     // Portfolio: positions found by scanning the wallet's token accounts.
     await page.goto(`${B}/portfolio`);
