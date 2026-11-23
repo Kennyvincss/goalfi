@@ -106,6 +106,7 @@ async function main() {
       case "getMultipleAccounts": return { ...ctx, value: (p[0] as string[]).map((a) => wrap(acct(a))) };
       case "getLatestBlockhash": return { ...ctx, value: { blockhash: bs58.encode(Buffer.alloc(32, 7)), lastValidBlockHeight: 1_000_000 } };
       case "getBlockHeight": return 10;
+      case "getBalance": return { ...ctx, value: 2_000_000_000 }; // 2 SOL for fees (pre-flight check)
       case "simulateTransaction":
         return { ...ctx, value: { err: null, logs: ["Program log: simulated"], unitsConsumed: 60_000, returnData: null,
           accounts: [tokenAcct(MINT, trader.publicKey, state.colBal - 10_000_000n), tokenAcct(yesMint, trader.publicKey, state.yesBal + SIM_OUT), null].map((d) => wrap(d)) } };

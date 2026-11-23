@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletButton } from "@/components/wallet/wallet-button";
-import { buildDepositLiquidityTx, PmAmmClient } from "@goalfi/chain/browser";
+import { buildDepositLiquidityTx, PmAmmClient, preflightTransaction } from "@goalfi/chain/browser";
+import { friendlyError } from "@/app/markets/[slug]/live-market";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAction } from "./use-action";
@@ -49,6 +50,14 @@ export function MarketSetupPanel(p: Props) {
         keys: { market: new PublicKey(p.marketAddress), authority: new PublicKey(p.authority), collateralMint: new PublicKey(p.collateralMint) },
         amount: BigInt(Math.round(amount * 1e6)),
       });
+      setStage("Checking your wallet…");
+      const problem = await preflightTransaction(connection, wallet.publicKey, tx, {
+        spend: { mint: new PublicKey(p.collateralMint), amountMicro: BigInt(Math.round(amount * 1e6)), symbol: p.collateralSymbol },
+      });
+      if (problem) {
+        setError(problem);
+        return;
+      }
       setStage("Approve in your wallet…");
       const signature = await wallet.sendTransaction(tx, connection);
       setStage("Confirming on Solana…");
@@ -56,7 +65,7 @@ export function MarketSetupPanel(p: Props) {
       setStage("Verifying…");
       await run("/api/transactions", { json: { signature, marketId: p.marketId, kind: "DEPOSIT_LIQUIDITY" } });
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyError(e));
     } finally {
       setStage(null);
     }

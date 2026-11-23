@@ -68,6 +68,7 @@ export function TradePanel() {
       () => buildSwapTx(client, { owner, keys, direction: swapDirection(action, side), amountIn: amount, minOutput: minOut }),
       `${action}_${side}` as "BUY_YES",
       `${action === "BUY" ? "Buy" : "Sell"} ${side}`,
+      action === "BUY" ? amount : undefined,
     );
     setInput("");
   }
