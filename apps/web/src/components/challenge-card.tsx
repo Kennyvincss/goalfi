@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { CategoryIcon } from "./category-icon";
 import { timeRemaining } from "@/lib/utils";
+import { displayStatus } from "@goalfi/core";
 
 const STATUS_LABEL: Record<string, { label: string; variant: "default" | "yes" | "muted" | "warning" | "outline" }> = {
   PENDING_MARKET: { label: "Launching", variant: "warning" },
@@ -33,7 +34,8 @@ export function ProbabilityBar({ yes }: { yes: number }) {
 }
 
 export function ChallengeCard({ c, linkTo = "challenge" }: { c: ChallengeCardData; linkTo?: "challenge" | "market" }) {
-  const status = STATUS_LABEL[c.status] ?? { label: c.status, variant: "muted" as const };
+  const shown = displayStatus(c.status, c.startDate);
+  const status = STATUS_LABEL[shown] ?? { label: shown, variant: "muted" as const };
   const snap = c.market?.snapshots[0];
   const hasPrice = snap && Number.isFinite(snap.yesPrice);
   return (

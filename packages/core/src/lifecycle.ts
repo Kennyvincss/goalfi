@@ -29,6 +29,11 @@ export function publishedStatus(startDate: Date, now: Date): ChallengeStatus {
   return now >= startDate ? "ACTIVE" : "UPCOMING";
 }
 
+/** Status to show: an UPCOMING challenge whose start has passed is live, even before the scheduler flips it. */
+export function displayStatus(status: string, startDate: Date, now = new Date()): string {
+  return status === "UPCOMING" && now >= startDate ? "ACTIVE" : status;
+}
+
 export function canJoin(status: ChallengeStatus): boolean {
   return status === "UPCOMING" || status === "ACTIVE";
 }

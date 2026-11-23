@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Activity, CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
 import { prisma } from "@goalfi/db";
-import { appMetric, easyToGameReason, evaluateSuccessRule, formatUsd, progressFraction, PROVIDER_INFO, reviewDeadline, SuccessRuleSchema, type AccountProviderId } from "@goalfi/core";
+import { appMetric, displayStatus, easyToGameReason, evaluateSuccessRule, formatUsd, progressFraction, PROVIDER_INFO, reviewDeadline, SuccessRuleSchema, type AccountProviderId } from "@goalfi/core";
 import { accountReadyFor, challengeAccess, participantPositions, listEvidence, measuredBy, providerSlug, resolutionReport } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { ConfirmPanel } from "./_panels/confirm-panel";
 import { MarketSetupPanel } from "./_panels/market-setup-panel";
 import { JoinButton } from "./_panels/join-button";
 import { EvidenceForm } from "./_panels/evidence-form";
+import { StartNowPanel } from "./_panels/start-now";
 import { EvidenceList } from "./_panels/evidence-list";
 import { ResolutionPanel } from "./_panels/resolution-panel";
 
@@ -92,7 +93,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <CategoryIcon icon={c.category.icon} className="size-4" />{c.category.name}
             {c.community && <>· <Link href={`/communities/${c.community.slug}`} className="hover:text-foreground">{c.community.name}</Link></>}
-            <Badge variant="outline">{c.status.replaceAll("_", " ").toLowerCase()}</Badge>
+            <Badge variant="outline">{displayStatus(c.status, c.startDate).replaceAll("_", " ").toLowerCase()}</Badge>
             {c.visibility !== "PUBLIC" && <Badge variant="muted">{c.visibility.toLowerCase()}</Badge>}
             {c.recurrence !== "NONE" && <Badge variant="muted">{c.recurrence.toLowerCase()}</Badge>}
           </div>
@@ -166,6 +167,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
           />
         )}
         {report && <ResolutionPanel challengeId={c.id} autoSettle={c.autoSettle} report={report} hasMarket={!!m && !["CREATING", "FAILED"].includes(m.status)} isPlatformAdmin={user?.role === "PLATFORM_ADMIN"} />}
+        {c.status === "UPCOMING" && c.startDate > now && access.isAdmin && <StartNowPanel challengeId={c.id} startsAt={c.startDate.toISOString()} />}
         {["UPCOMING", "ACTIVE"].includes(c.status) && (
           <Card>
             <CardContent className="space-y-3 pt-5">
