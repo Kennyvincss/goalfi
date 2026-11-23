@@ -16,3 +16,6 @@ export * from "./communities";
 export { audit } from "./audit";
 export * from "./app-url";
 export * from "./settlement";
+export * from "./fitness/service";
+export * from "./fitness/google-health";
+export { encryptToken, decryptToken } from "./fitness/crypto";

@@ -4,5 +4,6 @@ export const MAIN_NAV = [
   { href: "/challenges", label: "Challenges" },
   { href: "/markets", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/fitness", label: "Fitness" },
   { href: "/communities", label: "Communities" },
 ] as const;

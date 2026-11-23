@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
+import { Activity, CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
 import { prisma } from "@goalfi/db";
 import { SuccessRuleSchema, evaluateSuccessRule, progressFraction, formatUsd, reviewDeadline } from "@goalfi/core";
 import { challengeAccess, listEvidence, resolutionReport } from "@goalfi/services";
@@ -61,6 +61,9 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
   }));
   const live = evaluateSuccessRule(rule, approvedByUser);
   const verifiers = c.roles.filter((r) => r.role === "VERIFIER");
+  const app = c.verificationMethod === "CONNECTED_APP";
+  const fitnessConn = app && user ? await prisma.fitnessConnection.findUnique({ where: { userId_provider: { userId: user.id, provider: "GOOGLE_HEALTH" } } }) : null;
+  const fitnessReady = fitnessConn?.status === "ACTIVE";
   const joined = !!user && c.participants.some((p) => p.userId === user.id);
   const m = c.market;
   const snap = m?.snapshots[0];
@@ -99,7 +102,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             <CardHeader><CardTitle>Verified progress</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               <Progress value={progressFraction(live)} tone="yes" />
-              <p className="text-sm text-muted-foreground">{live.explanation} (approved evidence only)</p>
+              <p className="text-sm text-muted-foreground">{live.explanation} ({app ? "synced from Google Health" : "approved evidence only"})</p>
             </CardContent>
           </Card>
         )}
@@ -108,12 +111,16 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
         <Card>
           <CardHeader><CardTitle>Verification & disputes</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.requiredApprovals} of {verifiers.length} verifiers must approve each submission</p>
+            {app ? (
+              <p className="flex items-center gap-2"><Activity className="size-4 text-primary" />Verified automatically: each participant’s daily steps sync from Google Health{c.fitnessDailyTarget ? ` (a day counts at ${c.fitnessDailyTarget.toLocaleString("en-US")}+ steps)` : ""}. Steps that sync up to 2 hours after the end still count.</p>
+            ) : (
+              <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.requiredApprovals} of {verifiers.length} verifiers must approve each submission</p>
+            )}
             <p className="flex items-center gap-2"><Scale className="size-4 text-primary" />{c.disputeWindowHours}h dispute window after each decision</p>
             {c.reviewDeadlineHours && (
               <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />Review deadline {reviewDeadline(c.endDate, c.reviewDeadlineHours)!.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: evidence not approved by then counts as rejected</p>
             )}
-            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.autoSettle ? "Settles automatically once everything is reviewed and the dispute window has passed" : "An administrator confirms the result after review"}</p>
+            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.autoSettle ? (app ? "Settles automatically once late steps have synced and the dispute window has passed" : "Settles automatically once everything is reviewed and the dispute window has passed") : "An administrator confirms the result after review"}</p>
             <p className="text-muted-foreground">Evidence: {c.evidenceReq}</p>
             {verifiers.length > 0 && <p className="text-muted-foreground">Verifiers: {verifiers.map((v) => `@${v.user.username}`).join(", ")}</p>}
           </CardContent>
@@ -147,12 +154,34 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
         {["UPCOMING", "ACTIVE"].includes(c.status) && (
           <Card>
             <CardContent className="space-y-3 pt-5">
-              <JoinButton challengeId={c.id} slug={c.slug} joined={joined} signedIn={!!user} />
-              <p className="text-xs text-muted-foreground">No wallet needed to participate.</p>
+              {app && user && !joined && !fitnessReady ? (
+                <>
+                  <p className="text-sm">This challenge is verified from <b>Google Health</b>. Connect your Fitbit or Pixel Watch account to join; your steps then count automatically.</p>
+                  <Button asChild className="w-full"><a href={`/api/fitness/google/connect?next=${encodeURIComponent(`/challenges/${c.slug}`)}`}><Activity />{fitnessConn ? "Reconnect Google Health" : "Connect Google Health"}</a></Button>
+                </>
+              ) : (
+                <JoinButton challengeId={c.id} slug={c.slug} joined={joined} signedIn={!!user} />
+              )}
+              <p className="text-xs text-muted-foreground">No wallet needed to participate.{app ? " Your daily step totals are shown to other participants as evidence." : ""}</p>
             </CardContent>
           </Card>
         )}
-        {joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && now.getTime() <= c.endDate.getTime() + 24 * 3_600_000 && (
+        {app && joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && (
+          <Card>
+            <CardHeader><CardTitle>Your steps</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {fitnessReady ? (
+                <p>Syncing automatically from Google Health{fitnessConn?.lastSyncAt ? `, last checked ${fitnessConn.lastSyncAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}. Nothing to upload: keep your watch syncing with the Fitbit app.</p>
+              ) : (
+                <>
+                  <p className="text-no">GoalFi can’t read your steps right now, so they won’t count until you reconnect.</p>
+                  <Button asChild size="sm"><a href={`/api/fitness/google/connect?next=${encodeURIComponent(`/challenges/${c.slug}`)}`}>Reconnect Google Health</a></Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        {!app && joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && now.getTime() <= c.endDate.getTime() + 24 * 3_600_000 && (
           <Card>
             <CardHeader><CardTitle>Submit evidence</CardTitle></CardHeader>
             <CardContent>

@@ -9,6 +9,8 @@ export interface ResolutionInput {
     status: string;
     disputeWindowHours: number;
     successRule: SuccessRule;
+    /** App-verified challenges: steps keep syncing until this time, so resolution waits for it. */
+    dataSyncUntil?: Date | null;
   };
   /** Market end_ts (trading close). Resolution on-chain requires end_ts to have passed. */
   marketEndTs: Date | null;
@@ -39,6 +41,10 @@ export function evaluateResolution(i: ResolutionInput): ResolutionReport {
   if (["RESOLVED", "RESOLVING"].includes(i.challenge.status)) blockers.push("Challenge is already resolved or resolving");
   if (i.challenge.status === "CANCELLED") blockers.push("Challenge was cancelled");
   if (now < i.challenge.endDate.getTime()) blockers.push("Challenge has not ended yet");
+  else if (i.challenge.dataSyncUntil && now < i.challenge.dataSyncUntil.getTime()) {
+    const mins = Math.ceil((i.challenge.dataSyncUntil.getTime() - now) / 60_000);
+    blockers.push(`Waiting for late fitness data to sync (~${mins} min remaining)`);
+  }
   if (i.marketEndTs && now < i.marketEndTs.getTime()) blockers.push("Market trading period has not closed yet");
   if (i.marketStatus && ["CREATING", "RESOLVING", "RESOLVED", "FAILED"].includes(i.marketStatus))
     blockers.push(`Market is ${i.marketStatus.toLowerCase()}`);

@@ -16,6 +16,8 @@ import {
   onchainMarketName,
   periodIndex,
   reviewDeadline,
+  suggestStepChallenges,
+  civilDayInWindow,
   resolutionAwards,
   SuccessRuleSchema,
   tallyVotes,
@@ -275,5 +277,59 @@ describe("review deadline + auto-settle input", () => {
     expect(r.autoSettle).toBe(false);
     expect(reviewDeadline(new Date("2026-01-01T00:00:00Z"), 48)?.toISOString()).toBe("2026-01-03T00:00:00.000Z");
     expect(reviewDeadline(new Date(), null)).toBeNull();
+  });
+});
+
+describe("connected-app challenges", () => {
+  const future = (d: number) => new Date(Date.now() + d * 86_400_000);
+  const base = {
+    title: "Walk 10k today", description: "Ten thousand steps today.", categorySlug: "fitness",
+    rules: "Steps from the connected fitness account count.", successCriteria: "10,000 steps", evidenceReq: "Synced from fitness app",
+    successRule: { type: "individual_threshold", unit: "steps", threshold: 10000, minParticipants: 1 },
+    kind: "GROUP", visibility: "PUBLIC", recurrence: "NONE", startDate: future(0), endDate: future(1),
+    requiredApprovals: 1, disputeWindowHours: 1, verifierUsernames: [], adminUsernames: [],
+    marketQuestion: "Will I walk 10k?", market: { type: "NONE" },
+    verification: "CONNECTED_APP", fitness: { metric: "steps" }, autoSettle: true,
+  };
+  it("needs no verifiers or review deadline", () => expect(CreateChallengeSchema.safeParse(base).success).toBe(true));
+  it("requires the goal in the synced unit", () =>
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: { type: "individual_threshold", unit: "km", threshold: 5, minParticipants: 1 } }).success).toBe(false));
+  it("rejects milestone goals", () => expect(CreateChallengeSchema.safeParse({ ...base, successRule: { type: "milestone", minCompleters: 1 } }).success).toBe(false));
+  it("daily rules need a daily target", () => {
+    const daily = { ...base, successRule: { type: "daily_completion", requiredDays: 7, minParticipants: 1 } };
+    expect(CreateChallengeSchema.safeParse(daily).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...daily, fitness: { metric: "steps", dailyTarget: 8000 } }).success).toBe(true);
+  });
+  it("manual challenges still need verifiers", () =>
+    expect(CreateChallengeSchema.safeParse({ ...base, verification: "MANUAL", fitness: undefined }).success).toBe(false));
+});
+
+describe("step challenge suggestions", () => {
+  it("scales personal targets to the user's history", () => {
+    const s = suggestStepChallenges([8000, 9000, 8500, 7000, 9500, 8800, 8200]);
+    const today = s.find((x) => x.id === "steps-today")!;
+    expect(today.successRule).toMatchObject({ type: "individual_threshold", unit: "steps" });
+    expect((today.successRule as { threshold: number }).threshold).toBe(10000); // 8,429 avg × 1.15 → 9,693 → 10,000 (rounded to 500)
+    expect(s.every((x) => SuccessRuleSchema.safeParse(x.successRule).success)).toBe(true);
+    expect(s.filter((x) => x.scope === "group")).toHaveLength(0);
+  });
+  it("adds group suggestions for communities and keeps prices in range", () => {
+    const s = suggestStepChallenges([], { name: "good or nah", memberCount: 30 });
+    const g = s.find((x) => x.id === "group-10k-today")!;
+    expect((g.successRule as { minParticipants: number }).minParticipants).toBe(10);
+    expect(s.every((x) => x.initialPriceBps >= 1000 && x.initialPriceBps <= 9000)).toBe(true);
+    expect(s.find((x) => x.id === "steps-every-day-week")!.fitness.dailyTarget).toBeGreaterThanOrEqual(3000);
+  });
+});
+
+describe("civilDayInWindow", () => {
+  it("picks exactly the local days of a whole-day challenge in any timezone within ±12h", () => {
+    for (const offsetH of [-11, -5, 0, 1, 5.5, 9, 11]) {
+      // Local 2026-11-23 00:00 → 2026-11-25 00:00 (two local days) expressed in UTC.
+      const start = new Date(Date.UTC(2026, 10, 23) - offsetH * 3_600_000);
+      const end = new Date(start.getTime() + 2 * 86_400_000);
+      const days = ["2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25"].filter((d) => civilDayInWindow(d, start, end));
+      expect(days, `UTC${offsetH >= 0 ? "+" : ""}${offsetH}`).toEqual(["2026-11-23", "2026-11-24"]);
+    }
   });
 });

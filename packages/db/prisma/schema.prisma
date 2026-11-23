@@ -58,6 +58,8 @@ model User {
   reports             Report[]                 @relation("ReportReporter")
   reportsReviewed     Report[]                 @relation("ReportReviewer")
   marketsResolved     Market[]                 @relation("MarketResolver")
+  fitnessConnections  FitnessConnection[]
+  fitnessDaily        FitnessDaily[]
   invitesCreated      CommunityInvite[]
   categoriesCreated   Category[]
 
@@ -266,6 +268,12 @@ model Challenge {
   reviewDeadlineHours Int?
   /// Settle (resolve on-chain) automatically once nothing blocks resolution, using the computed outcome.
   autoSettle         Boolean             @default(false)
+  /// MANUAL = human verifiers review evidence; CONNECTED_APP = evidence comes from participants' fitness accounts.
+  verificationMethod VerificationMethod  @default(MANUAL)
+  /// For CONNECTED_APP challenges: which metric is synced (currently "steps").
+  fitnessMetric      String?
+  /// For daily-completion rules: the amount that makes a day count (e.g. 10000 steps).
+  fitnessDailyTarget Int?
   maxParticipants    Int?
   startDate          DateTime            @map("start_date")
   endDate            DateTime            @map("end_date")
@@ -296,6 +304,11 @@ model Challenge {
   @@index([communityId])
   @@index([creatorId])
   @@map("challenges")
+}
+
+enum VerificationMethod {
+  MANUAL
+  CONNECTED_APP
 }
 
 enum ChallengeRoleType {
@@ -761,6 +774,48 @@ model PlatformSetting {
   updatedAt DateTime @updatedAt
 
   @@map("platform_settings")
+}
+
+// ───────────────────────────── Connected fitness accounts ─────────────────────────────
+
+enum FitnessProvider {
+  GOOGLE_HEALTH
+}
+
+/// A user's link to a fitness data provider. Tokens are encrypted (AES-256-GCM, FITNESS_TOKEN_KEY).
+model FitnessConnection {
+  id              String          @id @default(cuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        FitnessProvider
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  expiresAt       DateTime
+  scope           String
+  status          String          @default("ACTIVE") // ACTIVE | ERROR | REVOKED
+  lastSyncAt      DateTime?
+  lastError       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([userId, provider])
+  @@map("fitness_connections")
+}
+
+/// Daily totals synced from a provider (one row per user/day/metric). Latest sync wins.
+model FitnessDaily {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  FitnessProvider
+  date      DateTime        @db.Date
+  metric    String // "steps"
+  value     Float
+  fetchedAt DateTime        @default(now())
+
+  @@unique([userId, provider, date, metric])
+  @@index([userId, metric, date])
+  @@map("fitness_daily")
 }
 
 /// Messages to Telegram chats (community announcements). Delivered by the bot worker.

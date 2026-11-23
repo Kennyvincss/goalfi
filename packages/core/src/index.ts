@@ -9,3 +9,4 @@ export * from "./challenge-input";
 export * from "./money";
 export * from "./lifecycle";
 export * from "./trading";
+export * from "./fitness-suggestions";

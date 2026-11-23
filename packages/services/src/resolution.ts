@@ -6,6 +6,7 @@ import { conflict, forbidden, invalid, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { applyAwards } from "./reputation";
 import { audit } from "./audit";
+import { SYNC_GRACE_HOURS } from "./fitness/service";
 
 /** Gather DB state for the core resolution gate (actor-independent). */
 async function gatherResolutionInput(ctx: ServiceContext, challengeId: string) {
@@ -27,7 +28,10 @@ async function gatherResolutionInput(ctx: ServiceContext, challengeId: string) {
   const marketUsable = c.market && !["CREATING", "FAILED"].includes(c.market.status);
   return {
     now: ctx.now(),
-    challenge: { endDate: c.endDate, status: c.status, disputeWindowHours: c.disputeWindowHours, successRule: SuccessRuleSchema.parse(c.successRule) },
+    challenge: {
+      endDate: c.endDate, status: c.status, disputeWindowHours: c.disputeWindowHours, successRule: SuccessRuleSchema.parse(c.successRule),
+      dataSyncUntil: c.verificationMethod === "CONNECTED_APP" ? new Date(c.endDate.getTime() + SYNC_GRACE_HOURS * 3_600_000) : null,
+    },
     marketEndTs: marketUsable ? c.market!.endTs : null,
     marketStatus: marketUsable ? c.market!.status : null,
     evidence: evidence.map((e) => ({ id: e.id, userId: e.userId, status: e.status, decidedAt: e.decidedAt, superseded: !!e.supersededBy })),

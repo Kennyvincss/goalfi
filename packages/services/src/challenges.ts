@@ -70,6 +70,9 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
       disputeWindowHours: input.disputeWindowHours,
       reviewDeadlineHours: input.reviewDeadlineHours ?? null,
       autoSettle: input.autoSettle,
+      verificationMethod: input.verification,
+      fitnessMetric: input.verification === "CONNECTED_APP" ? input.fitness!.metric : null,
+      fitnessDailyTarget: input.verification === "CONNECTED_APP" ? (input.fitness!.dailyTarget ?? null) : null,
       maxParticipants: input.maxParticipants ?? null,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -227,6 +230,11 @@ export async function joinChallenge(ctx: ServiceContext, actor: Actor, challenge
   if (c.maxParticipants) {
     const n = await ctx.db.participant.count({ where: { challengeId } });
     if (n >= c.maxParticipants) throw conflict("This challenge is full");
+  }
+  if (c.verificationMethod === "CONNECTED_APP") {
+    const conn = await ctx.db.fitnessConnection.findUnique({ where: { userId_provider: { userId: actor.id, provider: "GOOGLE_HEALTH" } } });
+    if (!conn || conn.status !== "ACTIVE")
+      throw conflict("This challenge is verified from Google Health. Connect your account in Settings → Fitness accounts first.");
   }
   try {
     const p = await ctx.db.participant.create({ data: { challengeId, userId: actor.id } });

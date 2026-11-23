@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { SuccessRuleSchema } from "./success-rule";
 
+/** Metrics that connected fitness accounts can verify (Google Health daily rollups). */
+export const FITNESS_METRICS = ["steps"] as const;
+export type FitnessMetric = (typeof FITNESS_METRICS)[number];
+
 /** Review deadline bounds (hours after the end date). The minimum matches the 24h evidence grace period. */
 export const REVIEW_DEADLINE_MIN_HOURS = 24;
 export const REVIEW_DEADLINE_MAX_HOURS = 14 * 24;
@@ -103,6 +107,10 @@ export const CreateChallengeSchema = z
     autoSettle: z.boolean().default(false),
     maxParticipants: z.number().int().min(1).max(100_000).optional(),
     verifierUsernames: z.array(z.string().min(1)).max(50),
+    /** MANUAL: human verifiers. CONNECTED_APP: progress is synced from participants' fitness accounts. */
+    verification: z.enum(["MANUAL", "CONNECTED_APP"]).default("MANUAL"),
+    /** Required for CONNECTED_APP. dailyTarget: what makes a day count for daily-completion rules. */
+    fitness: z.object({ metric: z.enum(FITNESS_METRICS), dailyTarget: z.number().int().min(100).max(200_000).optional() }).optional(),
     adminUsernames: z.array(z.string().min(1)).max(20),
     /** Short market question shown on the market (stored on-chain as the market name, ≤ 64 bytes). */
     marketQuestion: z.string().trim().min(4).max(200),
@@ -110,11 +118,22 @@ export const CreateChallengeSchema = z
   })
   .superRefine((c, ctx) => {
     if (c.endDate <= c.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after start date" });
-    if (c.autoSettle && c.reviewDeadlineHours === undefined)
+    const app = c.verification === "CONNECTED_APP";
+    if (app) {
+      if (!c.fitness) ctx.addIssue({ code: "custom", path: ["fitness"], message: "Choose what the fitness app measures" });
+      const r = c.successRule;
+      if (r.type === "milestone") ctx.addIssue({ code: "custom", path: ["successRule"], message: "App-verified challenges need a measurable goal (an amount, a group total, or days)" });
+      if ((r.type === "individual_threshold" || r.type === "collective_total") && c.fitness && r.unit !== c.fitness.metric)
+        ctx.addIssue({ code: "custom", path: ["successRule"], message: `The goal must be measured in ${c.fitness.metric}` });
+      if (r.type === "daily_completion" && !c.fitness?.dailyTarget)
+        ctx.addIssue({ code: "custom", path: ["fitness"], message: "Set how many steps make a day count" });
+    }
+    // App-verified evidence is approved as it syncs, so nothing can be left unreviewed: no deadline needed.
+    if (c.autoSettle && c.reviewDeadlineHours === undefined && !app)
       ctx.addIssue({ code: "custom", path: ["reviewDeadlineHours"], message: "Automatic settlement needs a review deadline, so one missing review can't block it forever" });
     if (c.visibility === "COMMUNITY" && !c.communityId)
       ctx.addIssue({ code: "custom", path: ["communityId"], message: "Community challenges need a community" });
-    if (c.verifierUsernames.length < c.requiredApprovals)
+    if (c.verification !== "CONNECTED_APP" && c.verifierUsernames.length < c.requiredApprovals)
       ctx.addIssue({ code: "custom", path: ["requiredApprovals"], message: "Required approvals cannot exceed the number of verifiers" });
     if (c.market.type !== "NONE") {
       const secs = (c.endDate.getTime() - Date.now()) / 1000;

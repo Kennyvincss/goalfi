@@ -36,6 +36,8 @@ export async function submitEvidence(ctx: ServiceContext, actor: Actor, challeng
   const input = parsed.data;
   const a = await requireView(ctx.db, challengeId, actor);
   const c = a.challenge;
+  if (c.verificationMethod === "CONNECTED_APP")
+    throw conflict("This challenge is verified automatically from Google Health. Your steps sync on their own, so there's nothing to upload.");
   const participant = await ctx.db.participant.findUnique({ where: { challengeId_userId: { challengeId, userId: actor.id } } });
   if (!participant || participant.status === "WITHDRAWN") throw forbidden("Join the challenge before submitting evidence");
   const now = ctx.now();

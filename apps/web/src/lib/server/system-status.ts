@@ -139,6 +139,19 @@ export async function systemStatus(): Promise<Check[]> {
     }
   }
 
+  // ── Fitness (Google Health) ──
+  {
+    const set = ["GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "FITNESS_TOKEN_KEY"].filter((k) => env[k]?.trim());
+    const redirect = `${app.url.replace(/\/$/, "")}/api/fitness/google/callback`;
+    if (set.length === 0)
+      checks.push({ area: "Fitness accounts", status: "info", detail: "Google Health isn't set up, so app-verified step challenges are off (optional)", fix: `To turn it on, follow “Connected fitness” in docs/DEPLOYMENT.md. The redirect URI to register with Google is ${redirect}` });
+    else if (set.length < 3)
+      checks.push({ area: "Fitness accounts", status: "error", detail: `Missing ${["GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "FITNESS_TOKEN_KEY"].filter((k) => !set.includes(k)).join(", ")}`, fix: "Add the missing variable(s), then Redeploy." });
+    else if ((env.FITNESS_TOKEN_KEY ?? "").trim().length < 32)
+      checks.push({ area: "Fitness accounts", status: "error", detail: "FITNESS_TOKEN_KEY is too short", fix: "Use a random value of at least 32 characters (it encrypts Google tokens). Changing it later disconnects everyone." });
+    else checks.push({ area: "Fitness accounts", status: "ok", detail: `Google Health enabled. Redirect URI: ${redirect}` });
+  }
+
   // ── Scheduler ──
   const hb = await prisma.platformSetting.findUnique({ where: { key: "scheduler.lastRun" } }).catch(() => null);
   const at = hb ? new Date((hb.value as { at: string }).at) : null;
