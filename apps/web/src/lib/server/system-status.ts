@@ -4,7 +4,7 @@ import { prisma } from "@goalfi/db";
 import { chainConfigFromEnv, loadAuthorityKeypair, makeConnection } from "@goalfi/chain/server";
 import { resolveAppUrl } from "@goalfi/services";
 import { services } from "./services";
-import { telegramConfigProblems, telegramOnVercel } from "./telegram";
+import { secretProblem, telegramConfigProblems, telegramOnVercel } from "./telegram";
 
 export type CheckStatus = "ok" | "warn" | "error" | "info";
 export interface Check {
@@ -118,8 +118,10 @@ export async function systemStatus(): Promise<Check[]> {
 
       if (telegramOnVercel()) {
         const problems = telegramConfigProblems();
-        if (problems.length) checks.push({ area: "Telegram connection", status: "error", detail: problems.join("; "), fix: "Fix these variables in Vercel, then Redeploy." });
-        const info = await withTimeout(api.getWebhookInfo());
+        // Configuration problems come first; the connection can't be made until they're fixed.
+        const info = problems.length ? null : await withTimeout(api.getWebhookInfo());
+        if (!info) checks.push({ area: "Telegram connection", status: "error", detail: problems.join("; "), fix: "Fix this in Vercel → Settings → Environment Variables, then Deployments → ⋯ → Redeploy. Telegram connects automatically within a minute after that." });
+        else {
         const expected = new URL("/api/telegram/webhook", app.url).toString();
         if (!info.url)
           checks.push({ area: "Telegram connection", status: "error", detail: "Telegram isn't connected to this site yet", fix: "The scheduler connects it automatically each minute. Check the Scheduler row below." });
@@ -128,6 +130,7 @@ export async function systemStatus(): Promise<Check[]> {
         else if (info.last_error_message && (info.last_error_date ?? 0) * 1000 > Date.now() - 30 * 60_000)
           checks.push({ area: "Telegram connection", status: "error", detail: `Telegram reports: ${info.last_error_message}`, fix: /401/.test(info.last_error_message) ? "TELEGRAM_WEBHOOK_SECRET changed: the next scheduler run re-connects automatically." : "Check the Vercel logs for /api/telegram/webhook." });
         else checks.push({ area: "Telegram connection", status: "ok", detail: `Connected (${info.pending_update_count} messages waiting)` });
+        }
       } else {
         checks.push({ area: "Telegram connection", status: "info", detail: "TELEGRAM_RUN_ON_VERCEL is not set: a separate bot process (Railway) must be running", fix: "For the free setup, set TELEGRAM_RUN_ON_VERCEL=1, TELEGRAM_WEBHOOK_SECRET and CRON_SECRET, then Redeploy." });
       }
@@ -140,8 +143,9 @@ export async function systemStatus(): Promise<Check[]> {
   const hb = await prisma.platformSetting.findUnique({ where: { key: "scheduler.lastRun" } }).catch(() => null);
   const at = hb ? new Date((hb.value as { at: string }).at) : null;
   const mins = at ? (Date.now() - at.getTime()) / 60_000 : Infinity;
-  if (!env.CRON_SECRET && telegramOnVercel())
-    checks.push({ area: "Scheduler", status: "error", detail: "CRON_SECRET is not set", fix: "Add CRON_SECRET in Vercel, Redeploy, and use the same value in cron-job.org's Authorization header (Bearer …)." });
+  const cronProblem = secretProblem("CRON_SECRET", env.CRON_SECRET);
+  if (cronProblem && telegramOnVercel())
+    checks.push({ area: "Scheduler", status: "error", detail: cronProblem, fix: "Fix CRON_SECRET in Vercel, Redeploy, and use the same value in cron-job.org's Authorization header (Bearer …)." });
   checks.push(
     !at
       ? { area: "Scheduler", status: "error", detail: "Has never run", fix: `cron-job.org should call ${app.url}/api/cron/tick every minute with header Authorization: Bearer <CRON_SECRET>. If its history shows 401, the header value doesn't match CRON_SECRET.` }

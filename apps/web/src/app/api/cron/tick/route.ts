@@ -13,8 +13,8 @@ export const maxDuration = 60;
  * All work is idempotent, so overlapping calls are safe.
  */
 export const GET = route(async (req) => {
-  const secret = process.env.CRON_SECRET ?? "";
-  const got = req.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
+  const secret = (process.env.CRON_SECRET ?? "").trim();
+  const got = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!secret || got.length !== secret.length || !timingSafeEqual(Buffer.from(got), Buffer.from(secret))) throw new HttpError(401, "Unauthorized");
   const ctx = services();
   const step = async <T>(fn: () => Promise<T>) => {

@@ -13,13 +13,25 @@ export function telegramOnVercel(): boolean {
   return ["1", "true", "yes"].includes((process.env.TELEGRAM_RUN_ON_VERCEL ?? "").toLowerCase());
 }
 
+/** Explain exactly what's wrong with a secret (admin-only diagnostics; never echoes the value). */
+export function secretProblem(name: string, raw: string | undefined, minLength = 16): string | null {
+  const value = (raw ?? "").trim();
+  if (!value) return `${name} is not set for this environment (in Vercel, make sure it's ticked for Production, then Redeploy)`;
+  const bad = [...new Set(value.replace(/[A-Za-z0-9_-]/g, ""))];
+  if (bad.length) return `${name} contains characters that aren't allowed: ${bad.map((c) => (c === " " ? "space" : `“${c}”`)).join(" ")}. Use only letters, numbers, _ or -`;
+  if (value.length < minLength) return `${name} is only ${value.length} characters long; use at least ${minLength}`;
+  return null;
+}
+
 function config() {
-  const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? "";
+  const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
+  // Trim: a trailing space or newline from copy-paste is the most common mistake.
+  const secret = (process.env.TELEGRAM_WEBHOOK_SECRET ?? "").trim();
   const appUrl = resolveAppUrl(process.env).url;
   const problems: string[] = [];
   if (!token) problems.push("TELEGRAM_BOT_TOKEN is not set");
-  if (!/^[A-Za-z0-9_-]{16,256}$/.test(secret)) problems.push("TELEGRAM_WEBHOOK_SECRET must be 16+ letters/numbers (A-Z, a-z, 0-9, _ or -)");
+  const sp = secretProblem("TELEGRAM_WEBHOOK_SECRET", secret);
+  if (sp) problems.push(sp);
   if (!appUrl.startsWith("https://")) problems.push("GOALFI_APP_URL must be your https:// site address (Telegram only calls https)");
   return { token, secret, url: new URL("/api/telegram/webhook", appUrl).toString(), problems };
 }
