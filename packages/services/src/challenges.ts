@@ -244,6 +244,28 @@ export async function afterPublish(ctx: ServiceContext, challengeId: string) {
   }
 }
 
+/**
+ * Start an upcoming challenge right away (challenge admins). App-verified challenges run on whole
+ * local days, so their start moves back in whole days to the last day boundary before now.
+ */
+export async function startChallengeNow(ctx: ServiceContext, actor: Actor, challengeId: string) {
+  const a = await requireView(ctx.db, challengeId, actor);
+  if (!a.isAdmin) throw forbidden("Only challenge administrators can start it");
+  const c = a.challenge;
+  if (c.status !== "UPCOMING") throw conflict("Only upcoming challenges can be started early");
+  const now = ctx.now();
+  const DAY = 86_400_000;
+  const start = c.verificationMethod === "CONNECTED_APP"
+    ? new Date(c.startDate.getTime() - Math.ceil((c.startDate.getTime() - now.getTime()) / DAY) * DAY)
+    : now;
+  const r = await ctx.db.challenge.updateMany({ where: { id: c.id, status: "UPCOMING" }, data: { startDate: start, status: "ACTIVE" } });
+  if (r.count !== 1) throw conflict("Only upcoming challenges can be started early");
+  await audit(ctx.db, actor.id, "challenge.started_early", "Challenge", c.id, { previousStart: c.startDate.toISOString() });
+  const ps = await ctx.db.participant.findMany({ where: { challengeId: c.id, status: { not: "WITHDRAWN" } }, select: { userId: true } });
+  await notify(ctx.db, ps.map((p) => p.userId), { type: "MARKET_UPDATE", message: `▶️ “${c.title}” has started.`, link: link(ctx, `/challenges/${c.slug}`), dedupKey: `STARTED:${c.id}` });
+  return ctx.db.challenge.findUniqueOrThrow({ where: { id: c.id } });
+}
+
 export async function joinChallenge(ctx: ServiceContext, actor: Actor, challengeId: string) {
   const a = await requireView(ctx.db, challengeId, actor);
   const c = a.challenge;

@@ -34,6 +34,8 @@ interface FormState {
   minParticipants: number;
   evidenceReq: string;
   participationReq: string;
+  /** Start the moment the challenge is published (default). */
+  startNow: boolean;
   startDate: string;
   endDate: string;
   verifiers: string;
@@ -57,12 +59,15 @@ interface FormState {
 const toLocalInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
 function initialState(): FormState {
-  const start = new Date(Date.now() + 3600_000);
-  start.setMinutes(0, 0, 0);
+  // Starts immediately; the end defaults to a week from now (on the hour).
+  const start = new Date();
+  const end = new Date(start.getTime() + 7 * 86_400_000);
+  end.setMinutes(0, 0, 0);
   return {
+    startNow: true,
     templateId: null, title: "", description: "", categorySlug: "fitness", communityId: "", visibility: "PUBLIC", kind: "GROUP", recurrence: "NONE",
     rules: "", successCriteria: "", ruleType: "individual_threshold", unit: "km", threshold: 50, target: 1000, requiredDays: 30, minParticipants: 1,
-    evidenceReq: "", participationReq: "", startDate: toLocalInput(start), endDate: toLocalInput(new Date(start.getTime() + 7 * 86_400_000)),
+    evidenceReq: "", participationReq: "", startDate: toLocalInput(start), endDate: toLocalInput(end),
     verifiers: "", admins: "", requiredApprovals: 1, disputeWindowHours: 24, maxParticipants: "",
     hasReviewDeadline: true, reviewDeadlineHours: 48, autoSettle: true, verification: "MANUAL", appMetric: "steps", dailyTarget: 8000,
     marketType: "BINARY", marketQuestion: "", initialPricePct: 50, initialLiquidityUsdc: 50,
@@ -161,7 +166,7 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
     if (len(f.evidenceReq) < 5) e.evidenceReq = "Say what proof people should upload (at least 5 characters).";
   }
   if (step === 3) {
-    const start = new Date(f.startDate), end = new Date(f.endDate);
+    const start = f.startNow && f.verification !== "CONNECTED_APP" ? new Date() : new Date(f.startDate), end = new Date(f.endDate);
     if (Number.isNaN(start.getTime())) e.startDate = "Pick a start date and time.";
     if (Number.isNaN(end.getTime())) e.endDate = "Pick an end date and time.";
     else if (end <= start) e.endDate = "The end must be after the start.";
@@ -245,7 +250,7 @@ export function ChallengeBuilder({
       ...base,
       templateId: t.id, title: t.title, description: t.description, categorySlug: t.category, rules: t.rules,
       successCriteria: t.successCriteria, evidenceReq: t.evidenceReq, recurrence: t.recurrence, marketQuestion: t.marketQuestion,
-      endDate: toLocalInput(new Date(start.getTime() + t.durationDays * 86_400_000)),
+      endDate: toLocalInput(new Date(Math.ceil((start.getTime() + t.durationDays * 86_400_000) / 3_600_000) * 3_600_000)),
       ruleType: r.type,
       unit: "unit" in r ? r.unit : base.unit,
       threshold: r.type === "individual_threshold" ? r.threshold : base.threshold,
@@ -269,7 +274,7 @@ export function ChallengeBuilder({
   const payload = () => ({
     title: f.title, description: f.description, categorySlug: f.categorySlug, rules: f.rules, successCriteria: f.successCriteria,
     successRule, participationReq: f.participationReq || undefined, evidenceReq: f.evidenceReq, kind: f.kind, visibility: f.visibility,
-    recurrence: f.recurrence, communityId: f.communityId || undefined, startDate: new Date(f.startDate).toISOString(), endDate: new Date(f.endDate).toISOString(),
+    recurrence: f.recurrence, communityId: f.communityId || undefined, startDate: (f.startNow && !app ? new Date() : new Date(f.startDate)).toISOString(), endDate: new Date(f.endDate).toISOString(),
     requiredApprovals: app ? 1 : f.requiredApprovals, disputeWindowHours: f.disputeWindowHours, maxParticipants: f.maxParticipants ? Number(f.maxParticipants) : undefined,
     reviewDeadlineHours: f.hasReviewDeadline && !app ? f.reviewDeadlineHours : undefined, autoSettle: f.autoSettle,
     verification: f.verification,
@@ -501,7 +506,15 @@ export function ChallengeBuilder({
               </div>
             ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label htmlFor="start">Start</Label><Input id="start" type="datetime-local" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} />{field("startDate")}</div>
+              <div className="space-y-1.5">
+                <Label htmlFor="start">Start</Label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={f.startNow} onChange={(e) => setF((s) => ({ ...s, startNow: e.target.checked, startDate: e.target.checked ? s.startDate : toLocalInput(new Date()) }))} />
+                  Start immediately
+                </label>
+                {!f.startNow && <Input id="start" type="datetime-local" aria-label="Start" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} />}
+                {field("startDate") ?? hint(f.startNow ? "Live as soon as you publish it." : "Shown as “Upcoming” until then.")}
+              </div>
               <div className="space-y-1.5"><Label htmlFor="end">End (trading closes here)</Label><Input id="end" type="datetime-local" value={f.endDate} onChange={(e) => set("endDate", e.target.value)} />{field("endDate") ?? hint(f.marketType === "BINARY" ? `With a market: at most ${MAX_MARKET_DAYS} days from now.` : "")}</div>
             </div>
             )}
@@ -598,7 +611,7 @@ export function ChallengeBuilder({
             <p className="text-sm text-muted-foreground">This creates a <b>draft</b>. On the next screen you’ll see the full summary and confirm the rules. Nothing goes live and no market is created before that.</p>
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[180px_1fr]">
               <dt className="text-muted-foreground">Title</dt><dd>{f.title || "—"}</dd>
-              <dt className="text-muted-foreground">When</dt><dd>{new Date(f.startDate).toLocaleString()} → {new Date(f.endDate).toLocaleString()}</dd>
+              <dt className="text-muted-foreground">When</dt><dd>{f.startNow && !app ? "Immediately" : new Date(f.startDate).toLocaleString()} → {new Date(f.endDate).toLocaleString()}</dd>
               <dt className="text-muted-foreground">Success</dt><dd>{f.successCriteria || "—"}</dd>
               <dt className="text-muted-foreground">Verification</dt><dd>{app ? `Automatic: ${metric.label.toLowerCase()} from ${PROVIDER_INFO[metric.provider].name}${f.ruleType === "daily_completion" ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, f.dailyTarget)})` : ""}` : `${f.requiredApprovals} of ${verifierCount} verifiers`} · {f.disputeWindowHours}h disputes</dd>
               <dt className="text-muted-foreground">Settlement</dt><dd>{f.autoSettle ? "Automatic" : "Admin confirms"}{app ? " · after late data syncs (2h after the end)" : f.hasReviewDeadline ? ` · review deadline ${f.reviewDeadlineHours}h after the end (unreviewed = rejected)` : " · no review deadline"}</dd>

@@ -28,8 +28,7 @@ async function session(name) {
   await page.getByRole("button", { name: /Run 50 km in 7 days/ }).click();
   await page.getByRole("button", { name: "Continue" }).click(); // basics → goal
   await page.getByRole("button", { name: "Continue" }).click(); // goal → schedule
-  const nowLocal = await page.evaluate(() => { const d = new Date(Date.now() - 60000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
-  await page.getByLabel("Start", { exact: true }).fill(nowLocal);
+  ok("challenges start immediately by default", await page.getByLabel("Start immediately").isChecked());
   await page.getByLabel("Verifiers (GoalFi usernames)").fill(`@${v1.username} @${v2.username}`);
   await page.getByLabel("Approvals required").fill("2");
   await page.getByRole("button", { name: "Continue" }).click(); // → market
@@ -45,6 +44,7 @@ async function session(name) {
   await page.waitForTimeout(1500);
   const slug = page.url().split("/challenges/")[1];
   await page.screenshot({ path: require("node:path").join(OUT, "challenge-active.png"), fullPage: true });
+  ok("published challenge is live right away (not upcoming)", await page.getByText("active", { exact: true }).first().isVisible());
   ok("no client-side errors", errors.length === 0, errors.join(" | "));
 
   // ── Participation & verification (API) ──

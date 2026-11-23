@@ -11,6 +11,7 @@ import {
   noBetBlockReason,
   participantPositions,
   reviewEvidence,
+  startChallengeNow,
   submitEvidence,
   submitUserTransaction,
   type Actor,
@@ -134,5 +135,27 @@ describe("anti-manipulation", () => {
     await joinChallenge(ctx, veteran, c.id);
     await joinChallenge(ctx, honest, c.id).catch(() => undefined); // holds NO on another market only
     expect((await challengeMarketLimits(ctx, c.id)).maxTradeUsdc).toBe(60);
+  });
+
+  it("an upcoming challenge can be started immediately by its admin", async () => {
+    const later = new Date(clock.now.getTime() + 3 * HOUR);
+    const c = await createChallenge(ctx, creator, input({ title: "Starts later", market: { type: "NONE" }, startDate: later, endDate: new Date(later.getTime() + DAY) }));
+    await confirmChallenge(ctx, creator, c.id);
+    expect((await prisma.challenge.findUniqueOrThrow({ where: { id: c.id } })).status).toBe("UPCOMING");
+    await expect(startChallengeNow(ctx, veteran, c.id)).rejects.toMatchObject({ status: 403 });
+    const started = await startChallengeNow(ctx, creator, c.id);
+    expect(started).toMatchObject({ status: "ACTIVE", startDate: clock.now });
+    await expect(startChallengeNow(ctx, creator, c.id)).rejects.toMatchObject({ status: 409 });
+
+    // App-verified: the start moves back by whole days, so local-day matching stays exact.
+    const midnight = new Date(Math.ceil(clock.now.getTime() / DAY) * DAY + 2 * DAY);
+    const app = await createChallenge(ctx, creator, input({
+      title: "Steps from the day after tomorrow", market: { type: "NONE" }, verification: "CONNECTED_APP", app: { metric: "steps" }, verifierUsernames: [], reviewDeadlineHours: undefined,
+      successRule: { type: "individual_threshold", unit: "steps", threshold: 5000, minParticipants: 1 }, startDate: midnight, endDate: new Date(midnight.getTime() + DAY),
+    }));
+    await confirmChallenge(ctx, creator, app.id);
+    const s2 = await startChallengeNow(ctx, creator, app.id);
+    expect(s2.startDate.getTime()).toBe(Math.floor(clock.now.getTime() / DAY) * DAY); // today's (UTC) midnight
+    expect((midnight.getTime() - s2.startDate.getTime()) % DAY).toBe(0);
   });
 });
