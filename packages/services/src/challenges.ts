@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
 import {
+  appMetric,
+  PROVIDER_INFO,
+  type AccountProviderId,
   canJoin,
   CreateChallengeSchema,
   MarketConfigSchema,
@@ -17,6 +20,7 @@ import { link, type Actor, type ServiceContext } from "./context";
 import { conflict, forbidden, invalid, isUniqueViolation, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { audit } from "./audit";
+import { accountReadyFor } from "./accounts/service";
 
 function slugify(title: string): string {
   const base = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "challenge";
@@ -43,6 +47,10 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
     const m = await ctx.db.communityMember.findUnique({ where: { communityId_userId: { communityId: input.communityId, userId: actor.id } } });
     if (!m || (m.role !== "OWNER" && m.role !== "ADMIN")) throw forbidden("Only community admins can create challenges in this community");
   }
+  if (input.verification === "CONNECTED_APP" && input.app?.metric === "telegram_members") {
+    const comm = await ctx.db.community.findUnique({ where: { id: input.communityId! }, select: { telegramChatId: true } });
+    if (!comm?.telegramChatId) throw invalid("Connect this community to a Telegram group first (Telegram page), so GoalFi can count its members");
+  }
   if (input.market.type === "MULTI_OUTCOME" || input.market.type === "COMMITMENT_VAULT")
     throw invalid("This market type is not enabled yet. It's pending devnet verification (see docs/PM_AMM_INTEGRATION.md). Use a YES/NO market or no market.");
   if (input.market.type !== "NONE" && !ctx.gateway) throw new ServiceError(503, "Market creation is not configured on this server");
@@ -68,6 +76,11 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
       recurrence: input.recurrence,
       requiredApprovals: input.requiredApprovals,
       disputeWindowHours: input.disputeWindowHours,
+      reviewDeadlineHours: input.reviewDeadlineHours ?? null,
+      autoSettle: input.autoSettle,
+      verificationMethod: input.verification,
+      appMetric: input.verification === "CONNECTED_APP" ? input.app!.metric : null,
+      appDailyTarget: input.verification === "CONNECTED_APP" && input.successRule.type === "daily_completion" ? (input.app!.dailyTarget ?? null) : null,
       maxParticipants: input.maxParticipants ?? null,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -225,6 +238,17 @@ export async function joinChallenge(ctx: ServiceContext, actor: Actor, challenge
   if (c.maxParticipants) {
     const n = await ctx.db.participant.count({ where: { challengeId } });
     if (n >= c.maxParticipants) throw conflict("This challenge is full");
+  }
+  const metric = c.verificationMethod === "CONNECTED_APP" ? appMetric(c.appMetric) : null;
+  if (metric && metric.source !== "level") {
+    const provider = metric.provider as AccountProviderId;
+    const acct = await ctx.db.connectedAccount.findUnique({ where: { userId_provider: { userId: actor.id, provider } } });
+    if (!accountReadyFor(acct, metric))
+      throw conflict(
+        acct && acct.status === "ACTIVE"
+          ? `This challenge needs sleep data: reconnect ${PROVIDER_INFO[provider].name} in Settings and allow sleep access.`
+          : `This challenge is verified from ${PROVIDER_INFO[provider].name}. Connect your account in Settings → Connected accounts first.`,
+      );
   }
   try {
     const p = await ctx.db.participant.create({ data: { challengeId, userId: actor.id } });

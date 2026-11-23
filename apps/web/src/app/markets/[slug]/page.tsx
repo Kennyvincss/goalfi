@@ -117,6 +117,8 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
                 reviewed and every dispute settled, a challenge administrator confirms the outcome computed from approved evidence, and GoalFi resolves the market on-chain.
                 Each winning share then redeems for 1 {symbol}.
               </p>
+              {c.reviewDeadlineHours && <p className="text-muted-foreground">Verifiers have {c.reviewDeadlineHours}h after the end to decide. Evidence not approved by then counts as rejected.</p>}
+              <p className="text-muted-foreground">{c.autoSettle ? "This market settles automatically with the computed outcome once review and disputes are finished." : "A challenge administrator confirms the outcome after review."}</p>
               <p className="text-muted-foreground">If the challenge is suspended, a YES/NO market can’t be cancelled on-chain; it resolves per these rules. YES+NO pairs can always be redeemed 1:1.</p>
             </CardContent>
           </Card>

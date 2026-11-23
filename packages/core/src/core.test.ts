@@ -15,6 +15,13 @@ import {
   minOutWithSlippage,
   onchainMarketName,
   periodIndex,
+  reviewDeadline,
+  suggestChallenges,
+  APP_METRIC_IDS,
+  APP_METRICS,
+  formatMetricValue,
+  meetsDailyTarget,
+  civilDayInWindow,
   resolutionAwards,
   SuccessRuleSchema,
   tallyVotes,
@@ -249,5 +256,136 @@ describe("lifecycle", () => {
     expect(timeTransition("UPCOMING", s, e, new Date("2026-01-02"))).toBe("ACTIVE");
     expect(timeTransition("ACTIVE", s, e, new Date("2026-01-11"))).toBe("IN_REVIEW");
     expect(timeTransition("ACTIVE", s, e, new Date("2026-01-05"))).toBeNull();
+  });
+});
+
+describe("review deadline + auto-settle input", () => {
+  const future = (days: number) => new Date(Date.now() + days * 86_400_000);
+  const valid = {
+    title: "Run 50 km", description: "Run fifty kilometres this week.", categorySlug: "fitness",
+    rules: "Runs must be recorded.", successCriteria: "50 km each", evidenceReq: "Screenshot",
+    successRule: { type: "milestone", minCompleters: 1 }, kind: "GROUP", visibility: "PUBLIC", recurrence: "NONE",
+    startDate: future(0), endDate: future(7), requiredApprovals: 1, disputeWindowHours: 24, verifierUsernames: ["a"], adminUsernames: [],
+    marketQuestion: "Will they run 50 km?", market: { type: "NONE" },
+  };
+  it("auto-settle requires a deadline", () => {
+    expect(CreateChallengeSchema.safeParse({ ...valid, autoSettle: true }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...valid, autoSettle: true, reviewDeadlineHours: 48 }).success).toBe(true);
+  });
+  it("deadline bounds", () => {
+    expect(CreateChallengeSchema.safeParse({ ...valid, reviewDeadlineHours: 12 }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...valid, reviewDeadlineHours: 400 }).success).toBe(false);
+  });
+  it("defaults to manual settlement", () => {
+    const r = CreateChallengeSchema.parse(valid);
+    expect(r.autoSettle).toBe(false);
+    expect(reviewDeadline(new Date("2026-01-01T00:00:00Z"), 48)?.toISOString()).toBe("2026-01-03T00:00:00.000Z");
+    expect(reviewDeadline(new Date(), null)).toBeNull();
+  });
+});
+
+describe("connected-app challenges", () => {
+  const future = (d: number) => new Date(Date.now() + d * 86_400_000);
+  const base = {
+    title: "Walk 10k today", description: "Ten thousand steps today.", categorySlug: "fitness",
+    rules: "Steps from the connected fitness account count.", successCriteria: "10,000 steps", evidenceReq: "Synced from fitness app",
+    successRule: { type: "individual_threshold", unit: "steps", threshold: 10000, minParticipants: 1 },
+    kind: "GROUP", visibility: "PUBLIC", recurrence: "NONE", startDate: future(0), endDate: future(1),
+    requiredApprovals: 1, disputeWindowHours: 1, verifierUsernames: [], adminUsernames: [],
+    marketQuestion: "Will I walk 10k?", market: { type: "NONE" },
+    verification: "CONNECTED_APP", app: { metric: "steps" }, autoSettle: true,
+  };
+  it("needs no verifiers or review deadline", () => expect(CreateChallengeSchema.safeParse(base).success).toBe(true));
+  it("requires the goal in the synced unit", () =>
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: { type: "individual_threshold", unit: "km", threshold: 5, minParticipants: 1 } }).success).toBe(false));
+  it("rejects milestone goals", () => expect(CreateChallengeSchema.safeParse({ ...base, successRule: { type: "milestone", minCompleters: 1 } }).success).toBe(false));
+  it("daily rules need a daily target", () => {
+    const daily = { ...base, successRule: { type: "daily_completion", requiredDays: 7, minParticipants: 1 } };
+    expect(CreateChallengeSchema.safeParse(daily).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...daily, app: { metric: "steps", dailyTarget: 8000 } }).success).toBe(true);
+  });
+  it("manual challenges still need verifiers", () =>
+    expect(CreateChallengeSchema.safeParse({ ...base, verification: "MANUAL", app: undefined }).success).toBe(false));
+});
+
+describe("app metric validation", () => {
+  const base = {
+    title: "Wake early", description: "Wake up early all week.", categorySlug: "lifestyle",
+    rules: "Sleep from the connected account counts.", successCriteria: "Wake by 6", evidenceReq: "Synced automatically",
+    kind: "PERSONAL", visibility: "PUBLIC", recurrence: "NONE",
+    startDate: new Date(Date.now() + 3_600_000), endDate: new Date(Date.now() + 7 * 86_400_000),
+    requiredApprovals: 1, disputeWindowHours: 24, verifierUsernames: [], adminUsernames: [],
+    marketQuestion: "Will I wake early?", market: { type: "NONE" }, verification: "CONNECTED_APP", autoSettle: true,
+  };
+  it("lower-is-better metrics only allow N-days goals with a target in range", () => {
+    const days = { type: "daily_completion", requiredDays: 5, minParticipants: 1 };
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: days, app: { metric: "wake_time", dailyTarget: 360 } }).success).toBe(true);
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: days, app: { metric: "wake_time", dailyTarget: 60 } }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: { type: "individual_threshold", unit: "wake-up time", threshold: 360, minParticipants: 1 }, app: { metric: "wake_time" } }).success).toBe(false);
+  });
+  it("community metrics need a community and one subject", () => {
+    const rule = { type: "individual_threshold", unit: "members", threshold: 100, minParticipants: 1 };
+    expect(CreateChallengeSchema.safeParse({ ...base, successRule: rule, app: { metric: "community_members" } }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...base, communityId: "c1", successRule: rule, app: { metric: "community_members" } }).success).toBe(true);
+    expect(CreateChallengeSchema.safeParse({ ...base, communityId: "c1", successRule: { ...rule, minParticipants: 3 }, app: { metric: "community_members" } }).success).toBe(false);
+  });
+  it("formats and compares values per metric", () => {
+    expect(formatMetricValue(APP_METRICS.wake_time, 375)).toBe("06:15");
+    expect(meetsDailyTarget(APP_METRICS.wake_time, 350, 360)).toBe(true);
+    expect(meetsDailyTarget(APP_METRICS.wake_time, 370, 360)).toBe(false);
+    expect(formatMetricValue(APP_METRICS.distance_km, 5.25)).toBe("5.3");
+  });
+});
+
+describe("challenge suggestions", () => {
+  it("scales personal step targets to the user's history", () => {
+    const s = suggestChallenges("steps", [8000, 9000, 8500, 7000, 9500, 8800, 8200]);
+    const today = s.find((x) => x.id === "steps:today")!;
+    expect(today.successRule).toMatchObject({ type: "individual_threshold", unit: "steps" });
+    expect((today.successRule as { threshold: number }).threshold).toBe(10000); // 8,429 avg × 1.15 → 9,693 → 10,000 (rounded to 500)
+    expect(s.filter((x) => x.scope === "group")).toHaveLength(0);
+  });
+  it("adds group suggestions for communities and keeps prices in range", () => {
+    const s = suggestChallenges("steps", [], { name: "good or nah", memberCount: 30 });
+    const g = s.find((x) => x.id === "steps:group-today")!;
+    expect((g.successRule as { minParticipants: number }).minParticipants).toBe(10);
+    expect(s.every((x) => x.initialPriceBps >= 1000 && x.initialPriceBps <= 9000)).toBe(true);
+  });
+  it("every metric's suggestions pass challenge validation", () => {
+    const base = {
+      description: "Generated from a suggestion.", categorySlug: "fitness", rules: "Synced automatically from the account.",
+      evidenceReq: "Synced automatically", kind: "PERSONAL", visibility: "PUBLIC", recurrence: "NONE",
+      startDate: new Date(Date.now() + 3_600_000), requiredApprovals: 1, disputeWindowHours: 24, verifierUsernames: [], adminUsernames: [],
+      market: { type: "NONE" }, verification: "CONNECTED_APP", autoSettle: true, communityId: "c1",
+    };
+    let n = 0;
+    for (const id of APP_METRIC_IDS) {
+      const history = id === "wake_time" ? [400, 410, 395, 420] : [];
+      for (const s of suggestChallenges(id, history, { name: "Crew", memberCount: 12, currentLevel: 120 })) {
+        const r = CreateChallengeSchema.safeParse({
+          ...base, title: s.title, successCriteria: s.successCriteria, successRule: s.successRule, app: s.app, marketQuestion: s.marketQuestion,
+          endDate: new Date(Date.now() + 3_600_000 + s.durationDays * 86_400_000),
+        });
+        expect(r.success, `${s.id}: ${JSON.stringify(r.error?.issues)}`).toBe(true);
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(30);
+  });
+  it("suggests wake-up goals from sleep history", () => {
+    const s = suggestChallenges("wake_time", [400, 410, 395, 420]); // ~06:46 average
+    expect(s.map((x) => x.app.dailyTarget)).toEqual([420, 375]); // by 07:00, stretch 06:15
+  });
+});
+
+describe("civilDayInWindow", () => {
+  it("picks exactly the local days of a whole-day challenge in any timezone within ±12h", () => {
+    for (const offsetH of [-11, -5, 0, 1, 5.5, 9, 11]) {
+      // Local 2026-11-23 00:00 → 2026-11-25 00:00 (two local days) expressed in UTC.
+      const start = new Date(Date.UTC(2026, 10, 23) - offsetH * 3_600_000);
+      const end = new Date(start.getTime() + 2 * 86_400_000);
+      const days = ["2026-11-22", "2026-11-23", "2026-11-24", "2026-11-25"].filter((d) => civilDayInWindow(d, start, end));
+      expect(days, `UTC${offsetH >= 0 ? "+" : ""}${offsetH}`).toEqual(["2026-11-23", "2026-11-24"]);
+    }
   });
 });

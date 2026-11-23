@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
+import { Activity, CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
 import { prisma } from "@goalfi/db";
-import { SuccessRuleSchema, evaluateSuccessRule, progressFraction, formatUsd } from "@goalfi/core";
-import { challengeAccess, listEvidence, resolutionReport } from "@goalfi/services";
+import { appMetric, evaluateSuccessRule, formatUsd, progressFraction, PROVIDER_INFO, reviewDeadline, SuccessRuleSchema, type AccountProviderId } from "@goalfi/core";
+import { accountReadyFor, challengeAccess, listEvidence, measuredBy, providerSlug, resolutionReport } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,13 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
   }));
   const live = evaluateSuccessRule(rule, approvedByUser);
   const verifiers = c.roles.filter((r) => r.role === "VERIFIER");
+  const app = c.verificationMethod === "CONNECTED_APP";
+  const metric = app ? appMetric(c.appMetric) : null;
+  const personal = !!metric && metric.source !== "level";
+  const providerName = metric ? PROVIDER_INFO[metric.provider].name : "";
+  const acct = personal && user ? await prisma.connectedAccount.findUnique({ where: { userId_provider: { userId: user.id, provider: metric!.provider as AccountProviderId } } }) : null;
+  const acctReady = !!metric && accountReadyFor(acct, metric);
+  const connectHref = metric && personal ? `/api/accounts/${providerSlug(metric.provider as AccountProviderId)}/connect?next=${encodeURIComponent(`/challenges/${c.slug}`)}` : "";
   const joined = !!user && c.participants.some((p) => p.userId === user.id);
   const m = c.market;
   const snap = m?.snapshots[0];
@@ -99,7 +106,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             <CardHeader><CardTitle>Verified progress</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               <Progress value={progressFraction(live)} tone="yes" />
-              <p className="text-sm text-muted-foreground">{live.explanation} (approved evidence only)</p>
+              <p className="text-sm text-muted-foreground">{live.explanation} ({app ? (metric?.source === "level" ? `counted by ${providerName}` : `synced from ${providerName}`) : "approved evidence only"})</p>
             </CardContent>
           </Card>
         )}
@@ -108,8 +115,16 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
         <Card>
           <CardHeader><CardTitle>Verification & disputes</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.requiredApprovals} of {verifiers.length} verifiers must approve each submission</p>
+            {app ? (
+              <p className="flex items-center gap-2"><Activity className="size-4 text-primary" />Verified automatically: {measuredBy(c.appMetric, c.appDailyTarget)}.{personal ? " Data that syncs up to 2 hours after the end still counts." : ""}</p>
+            ) : (
+              <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.requiredApprovals} of {verifiers.length} verifiers must approve each submission</p>
+            )}
             <p className="flex items-center gap-2"><Scale className="size-4 text-primary" />{c.disputeWindowHours}h dispute window after each decision</p>
+            {c.reviewDeadlineHours && (
+              <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />Review deadline {reviewDeadline(c.endDate, c.reviewDeadlineHours)!.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: evidence not approved by then counts as rejected</p>
+            )}
+            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.autoSettle ? (app ? "Settles automatically once late data has synced and the dispute window has passed" : "Settles automatically once everything is reviewed and the dispute window has passed") : "An administrator confirms the result after review"}</p>
             <p className="text-muted-foreground">Evidence: {c.evidenceReq}</p>
             {verifiers.length > 0 && <p className="text-muted-foreground">Verifiers: {verifiers.map((v) => `@${v.user.username}`).join(", ")}</p>}
           </CardContent>
@@ -139,16 +154,38 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             canManage={access.isAdmin} isCreator={access.isCreator} linkedWallet={user?.walletAddress ?? null}
           />
         )}
-        {report && <ResolutionPanel challengeId={c.id} report={report} hasMarket={!!m && !["CREATING", "FAILED"].includes(m.status)} isPlatformAdmin={user?.role === "PLATFORM_ADMIN"} />}
+        {report && <ResolutionPanel challengeId={c.id} autoSettle={c.autoSettle} report={report} hasMarket={!!m && !["CREATING", "FAILED"].includes(m.status)} isPlatformAdmin={user?.role === "PLATFORM_ADMIN"} />}
         {["UPCOMING", "ACTIVE"].includes(c.status) && (
           <Card>
             <CardContent className="space-y-3 pt-5">
-              <JoinButton challengeId={c.id} slug={c.slug} joined={joined} signedIn={!!user} />
-              <p className="text-xs text-muted-foreground">No wallet needed to participate.</p>
+              {personal && user && !joined && !acctReady ? (
+                <>
+                  <p className="text-sm">This challenge is verified from <b>{providerName}</b>. Connect your account to join{metric?.id === "wake_time" ? " (allow sleep access)" : ""}; your progress then counts automatically.</p>
+                  <Button asChild className="w-full"><a href={connectHref}><Activity />{acct ? `Reconnect ${providerName}` : `Connect ${providerName}`}</a></Button>
+                </>
+              ) : (
+                <JoinButton challengeId={c.id} slug={c.slug} joined={joined} signedIn={!!user} />
+              )}
+              <p className="text-xs text-muted-foreground">No wallet needed to participate.{personal ? ` Your daily ${metric!.label.toLowerCase()} are shown to other participants as evidence.` : ""}</p>
             </CardContent>
           </Card>
         )}
-        {joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && now.getTime() <= c.endDate.getTime() + 24 * 3_600_000 && (
+        {personal && joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && (
+          <Card>
+            <CardHeader><CardTitle>Your {metric!.label.toLowerCase()}</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {acctReady ? (
+                <p>Syncing automatically from {providerName}{acct?.lastSyncAt ? `, last checked ${acct.lastSyncAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}. Nothing to upload.</p>
+              ) : (
+                <>
+                  <p className="text-no">GoalFi can’t read your {providerName} data right now, so it won’t count until you reconnect.</p>
+                  <Button asChild size="sm"><a href={connectHref}>Reconnect {providerName}</a></Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        {!app && joined && ["ACTIVE", "IN_REVIEW"].includes(c.status) && now.getTime() <= c.endDate.getTime() + 24 * 3_600_000 && (
           <Card>
             <CardHeader><CardTitle>Submit evidence</CardTitle></CardHeader>
             <CardContent>

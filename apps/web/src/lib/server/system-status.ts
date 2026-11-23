@@ -139,6 +139,29 @@ export async function systemStatus(): Promise<Check[]> {
     }
   }
 
+  // ── Connected accounts ──
+  {
+    const base = app.url.replace(/\/$/, "");
+    const key = (env.ACCOUNT_TOKEN_KEY ?? "").trim();
+    if (!key)
+      checks.push({ area: "Connected accounts", status: "info", detail: "Off: ACCOUNT_TOKEN_KEY isn't set, so Google Health, GitHub and Lichess can't be connected (optional). Community member challenges still work.", fix: "Add ACCOUNT_TOKEN_KEY (32+ random letters and numbers), then Redeploy. That alone turns on Lichess. See docs/DEPLOYMENT.md step 10." });
+    else if (key.length < 32)
+      checks.push({ area: "Connected accounts", status: "error", detail: "ACCOUNT_TOKEN_KEY is too short", fix: "Use at least 32 random characters. Changing it later disconnects everyone." });
+    else {
+      checks.push({ area: "Lichess", status: "ok", detail: `On (no setup needed). Sign-in returns to ${base}/api/accounts/lichess/callback` });
+      const pair = (area: string, id: string, secret: string, path: string, how: string) => {
+        const have = [id, secret].filter((k) => env[k]?.trim());
+        checks.push(
+          have.length === 2 ? { area, status: "ok", detail: `On. Redirect URI: ${base}${path}` }
+          : have.length === 1 ? { area, status: "error", detail: `Missing ${[id, secret].find((k) => !env[k]?.trim())}`, fix: "Add the missing variable, then Redeploy." }
+          : { area, status: "info", detail: `Off (optional). ${how}`, fix: `Register the redirect URI ${base}${path}, then add ${id} and ${secret}.` },
+        );
+      };
+      pair("Google Health", "GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "/api/accounts/google/callback", "Needs a Google Cloud OAuth client (step 10).");
+      pair("GitHub", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "/api/accounts/github/callback", "Needs a GitHub OAuth app (step 10).");
+    }
+  }
+
   // ── Scheduler ──
   const hb = await prisma.platformSetting.findUnique({ where: { key: "scheduler.lastRun" } }).catch(() => null);
   const at = hb ? new Date((hb.value as { at: string }).at) : null;

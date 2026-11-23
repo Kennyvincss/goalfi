@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@goalfi/db";
-import { SuccessRuleSchema } from "@goalfi/core";
+import { SuccessRuleSchema, reviewDeadline } from "@goalfi/core";
 import { challengeAccess, listEvidence } from "@goalfi/services";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/server/auth";
@@ -35,6 +35,11 @@ export default async function ReviewPage({ params }: { params: Promise<{ slug: s
         <Link href={`/challenges/${slug}`} className="text-sm text-muted-foreground hover:text-foreground">← {c.title}</Link>
         <h1 className="mt-1 text-2xl font-bold">Review evidence</h1>
         <p className="text-sm text-muted-foreground">{c.requiredApprovals} approval(s) needed per submission. Evidence requirement: {c.evidenceReq}</p>
+        {c.reviewDeadlineHours && (
+          <p className="mt-1 text-sm font-medium text-warning">
+            Review deadline: {reviewDeadline(c.endDate, c.reviewDeadlineHours)!.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}. Anything not approved by then counts as rejected.
+          </p>
+        )}
       </div>
       {access.isAdmin && disputes.length > 0 && (
         <Card>

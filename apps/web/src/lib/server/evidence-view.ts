@@ -19,6 +19,7 @@ export function toEvidenceItem(e: Row): EvidenceItem {
     decidedAt: e.decidedAt?.toISOString() ?? null,
     contentHash: e.contentHash,
     superseded: !!e.supersededBy,
+    autoDecision: e.autoDecision ?? null,
     files: e.files.map((f) => ({ id: f.id, mimeType: f.mimeType })),
     votes: e.verifications.map((v) => ({ username: v.verifier.username, decision: v.decision, reason: v.reason })),
     disputes: e.disputes.map((d) => ({ id: d.id, status: d.status, reason: d.reason, finalDecision: d.finalDecision, resolutionNote: d.resolutionNote })),

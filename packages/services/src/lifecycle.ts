@@ -2,6 +2,7 @@ import { timeTransition, type ChallengeStatus } from "@goalfi/core";
 import { link, type ServiceContext } from "./context";
 import { announceToCommunity, notify } from "./notifications";
 import { reconcileResolutions } from "./resolution";
+import { applyReviewDeadlines, autoSettleTick, reviewDeadlineReminders } from "./settlement";
 import { reconcilePendingTransactions, snapshotMarket } from "./transactions";
 
 const HOUR = 3_600_000;
@@ -9,7 +10,7 @@ const HOUR = 3_600_000;
 /** One scheduler tick: time-based status changes, reminders. Safe to run repeatedly. */
 export async function lifecycleTick(ctx: ServiceContext) {
   const now = ctx.now();
-  const out = { transitioned: 0, marketsClosed: 0, cancelled: 0, reminders: 0 };
+  const out = { transitioned: 0, marketsClosed: 0, cancelled: 0, reminders: 0, deadlineRejected: 0 };
 
   const moving = await ctx.db.challenge.findMany({ where: { status: { in: ["UPCOMING", "ACTIVE"] } }, select: { id: true, slug: true, title: true, status: true, startDate: true, endDate: true, creatorId: true, communityId: true } });
   for (const c of moving) {
@@ -54,6 +55,10 @@ export async function lifecycleTick(ctx: ServiceContext) {
       dedupKey: `${starting ? "STARTING" : "ENDING"}:${c.id}`,
     });
   }
+  // Review deadlines: unreviewed evidence counts as rejected; warn verifiers 12h before.
+  out.deadlineRejected = await applyReviewDeadlines(ctx);
+  out.reminders += await reviewDeadlineReminders(ctx);
+
   // Heartbeat so the admin System status panel can tell whether the scheduler is running.
   await ctx.db.platformSetting.upsert({
     where: { key: "scheduler.lastRun" },
@@ -65,7 +70,9 @@ export async function lifecycleTick(ctx: ServiceContext) {
 
 /** Chain-facing maintenance: tx reconciler, stuck resolutions, price snapshots. */
 export async function chainTick(ctx: ServiceContext, opts: { snapshotEveryMins?: number } = {}) {
-  if (!ctx.gateway) return { reconciled: 0, resolutions: 0, snapshots: 0 };
+  // Auto-settlement runs even without chain access: challenges without a market settle off-chain.
+  const autoSettle = await autoSettleTick(ctx);
+  if (!ctx.gateway) return { reconciled: 0, resolutions: 0, snapshots: 0, autoSettle };
   const reconciled = await reconcilePendingTransactions(ctx);
   const resolutions = await reconcileResolutions(ctx);
   const every = (opts.snapshotEveryMins ?? 5) * 60_000;
@@ -76,5 +83,5 @@ export async function chainTick(ctx: ServiceContext, opts: { snapshotEveryMins?:
     if (ctx.now().getTime() - last < every) continue;
     if (await snapshotMarket(ctx, m.id).catch(() => null)) snapshots++;
   }
-  return { reconciled, resolutions, snapshots };
+  return { reconciled, resolutions, snapshots, autoSettle };
 }

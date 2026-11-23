@@ -5,8 +5,9 @@ import { CircleCheck, CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAction } from "./use-action";
 
-export function ResolutionPanel({ challengeId, report, hasMarket, isPlatformAdmin }: {
+export function ResolutionPanel({ challengeId, report, hasMarket, isPlatformAdmin, autoSettle = false }: {
   challengeId: string;
+  autoSettle?: boolean;
   report: { ok: boolean; blockers: string[]; proposedOutcome: "YES" | "NO"; evaluation: { explanation: string } };
   hasMarket: boolean;
   isPlatformAdmin: boolean;
@@ -19,6 +20,7 @@ export function ResolutionPanel({ challengeId, report, hasMarket, isPlatformAdmi
   return (
     <div className="space-y-4 rounded-lg border p-5">
       <h2 className="font-semibold">Resolve challenge</h2>
+      {autoSettle && <p className="text-sm text-muted-foreground">This challenge settles <b>automatically</b> as soon as nothing below is blocking it. You can also resolve it yourself once it’s unblocked.</p>}
       <div className="rounded-md bg-muted p-3 text-sm">
         <div>Computed from approved evidence: <b className={outcome === "YES" ? "text-yes" : "text-no"}>{outcome === "YES" ? "YES: goal achieved" : "NO: goal not achieved"}</b></div>
         <div className="text-muted-foreground">{report.evaluation.explanation}</div>
