@@ -243,7 +243,7 @@ verifiers and settle automatically. What can be verified (see `docs/CONNECTED_AC
 | **Lichess** | chess games played, puzzles solved | none beyond `ACCOUNT_TOKEN_KEY` |
 | **GoalFi** | community members | none |
 | **Telegram** | members of the community's linked group | the bot (already set up) |
-| **Google Health** (Fitbit, Pixel Watch) | steps, distance, floors, heart-zone minutes, workouts, wake-up time | Google Cloud OAuth client |
+| **Google Health** (Fitbit, Pixel Watch) | steps, distance, running distance, floors, heart-zone minutes, workouts, wake-up time | Google Cloud OAuth client |
 | **GitHub** | daily contributions | GitHub OAuth app |
 
 **a. The key (required for any account).** In Vercel add `ACCOUNT_TOKEN_KEY` = 32+ random letters

@@ -9,6 +9,7 @@ metric is only listed here if it has an official API, the data provably belongs 
 |---|---|---|---|
 | `steps` | Google Health | `dataTypes/steps/dataPoints:dailyRollUp` → `rollupDataPoints[].steps.countSum` | per local day |
 | `distance_km` | Google Health | `distance` rollup → `distance.millimetersSum` ÷ 1,000,000 | per local day |
+| `running_km` | Google Health | `dataTypes/exercise/dataPoints` → workouts whose `exerciseType` is a running type (matched by name, e.g. RUNNING / TREADMILL_RUNNING, since the API doesn't list its values; walking and hiking excluded) → sum of `metricsSummary.distanceMillimeters` ÷ 1,000,000 | per local day |
 | `floors` | Google Health | `floors` rollup → `floors.countSum` | per local day |
 | `heart_zone_minutes` | Google Health | `active-zone-minutes` rollup → `sumInFatBurnHeartZone + sumInCardioHeartZone + sumInPeakHeartZone` | per local day |
 | `workouts` | Google Health | `dataTypes/exercise/dataPoints` (list, filter `exercise.interval.civil_start_time`) → sessions with `activeDuration` ≥ 10 min | per local day |

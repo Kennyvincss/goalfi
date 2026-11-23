@@ -53,6 +53,10 @@ export const APP_METRICS = {
     id: "distance_km", provider: "GOOGLE_HEALTH", source: "daily", unit: "km", label: "Distance", category: "fitness", better: "higher", decimals: 1,
     description: "Distance walked, run or cycled per day (kilometres)", daily: { default: 5, min: 0.5, max: 300, step: 0.5, typical: 4 },
   }),
+  running_km: m({
+    id: "running_km", provider: "GOOGLE_HEALTH", source: "daily", unit: "km", label: "Running distance", category: "fitness", better: "higher", decimals: 1,
+    description: "Distance of runs recorded as a run workout on the watch (walks and rides don't count)", daily: { default: 3, min: 0.5, max: 100, step: 0.5, typical: 2 },
+  }),
   floors: m({
     id: "floors", provider: "GOOGLE_HEALTH", source: "daily", unit: "floors", label: "Floors climbed", category: "fitness", better: "higher", decimals: 0,
     description: "Floors climbed per day", daily: { default: 10, min: 1, max: 500, step: 1, typical: 8 },

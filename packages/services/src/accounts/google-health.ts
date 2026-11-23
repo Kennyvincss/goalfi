@@ -89,6 +89,30 @@ export function countWorkouts(points: Record<string, unknown>[]): Map<string, nu
   return out;
 }
 
+/**
+ * Is this workout a run? Google's API documents `exerciseType` but doesn't list its values, so match
+ * running types by name (e.g. RUNNING, TREADMILL_RUNNING), falling back to the display name.
+ */
+export function isRun(e: Record<string, unknown>): boolean {
+  const type = String(e.exerciseType ?? "");
+  if (/WALK|HIK/i.test(type)) return false;
+  if (/RUN|JOG/i.test(type)) return true;
+  return type.toUpperCase() === "OTHER" || !type ? /\b(run|running|jog|jogging)\b/i.test(String(e.displayName ?? "")) : false;
+}
+
+/** Kilometres run per local start date, from run workouts' `metricsSummary.distanceMillimeters`. */
+export function runningKm(points: Record<string, unknown>[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const p of points) {
+    const e = p.exercise as Record<string, unknown> | undefined;
+    const date = isoFromCivil((e?.interval as Record<string, unknown> | undefined)?.civilStartTime);
+    const mm = num((e?.metricsSummary as Record<string, unknown> | undefined)?.distanceMillimeters);
+    if (!e || !date || !isRun(e) || !Number.isFinite(mm) || mm <= 0) continue;
+    out.set(date, Math.round(((out.get(date) ?? 0) + mm / 1_000_000) * 100) / 100);
+  }
+  return out;
+}
+
 /** Wake-up time (minutes after local midnight) per local date, from each day's main sleep. Naps are ignored. */
 export function wakeTimes(points: Record<string, unknown>[]): Map<string, number> {
   const best = new Map<string, { main: boolean; length: number; wake: number }>();
@@ -177,10 +201,13 @@ export function googleHealthProvider(cfg: GoogleHealthConfig): ProviderClient {
         }
         return points;
       };
-      const workouts = countWorkouts(await list("exercise", `exercise.interval.civil_start_time >= "${startIso}" AND exercise.interval.civil_start_time < "${endIso}"`));
-      // Days with no workout are real zeros once the day has data from the watch (steps rollup present).
+      const exercises = await list("exercise", `exercise.interval.civil_start_time >= "${startIso}" AND exercise.interval.civil_start_time < "${endIso}"`);
+      const workouts = countWorkouts(exercises);
+      const runs = runningKm(exercises);
+      // Days with no workout or run are real zeros once the day has data from the watch (steps rollup present).
       const daysWithData = new Set(daily.filter((r) => r.metric === "steps").map((r) => r.date));
       for (const date of new Set([...daysWithData, ...workouts.keys()])) daily.push({ metric: "workouts", date, value: workouts.get(date) ?? 0 });
+      for (const date of new Set([...daysWithData, ...runs.keys()])) daily.push({ metric: "running_km", date, value: runs.get(date) ?? 0 });
       if (account.scope.includes(GOOGLE_SLEEP_SCOPE)) {
         const wakes = wakeTimes(await list("sleep", `sleep.interval.civil_end_time >= "${startIso}" AND sleep.interval.civil_end_time < "${endIso}"`));
         for (const [date, value] of wakes) daily.push({ metric: "wake_time", date, value });
