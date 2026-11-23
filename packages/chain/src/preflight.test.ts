@@ -20,3 +20,7 @@ describe("explainFailure", () => {
     expect(explainFailure({ InstructionError: [0, "Custom"] }, ["Program log: something failed here"])).toMatch(/something failed here/);
   });
 });
+
+describe("explainFailure runtime errors", () => {
+  it("explains InvalidAccountForFee", () => expect(explainFailure("InvalidAccountForFee")).toMatch(/can't pay network fees/));
+});

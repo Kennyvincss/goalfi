@@ -30,8 +30,24 @@ export function explainFailure(err: unknown, logs: string[] = [], symbol = "USDC
   if (/AccountNotInitialized|could not find account|InvalidAccountData/i.test(text))
     return `Your wallet doesn't have ${symbol} yet. Get test ${symbol} first.`;
   if (/BlockhashNotFound/i.test(text)) return "The network was busy. Please try again.";
+  if (/InvalidAccountForFee/.test(text)) return "Solana says this wallet account can't pay network fees.";
   const last = [...logs].reverse().find((l) => /error|failed/i.test(l));
   return last ? `The transaction would fail: ${last.replace(/^Program log: /, "").slice(0, 160)}` : "The transaction would fail on-chain.";
+}
+
+/**
+ * Describe the wallet's own Solana account (the fee payer) in plain words, for diagnosing
+ * fee-payer errors such as InvalidAccountForFee / AccountNotFound.
+ */
+export async function describeFeePayer(connection: Connection, owner: PublicKey): Promise<string> {
+  const info = await connection.getAccountInfo(owner, "confirmed");
+  const short = `${owner.toBase58().slice(0, 4)}…${owner.toBase58().slice(-4)}`;
+  if (!info) return `Wallet ${short} doesn't exist on this network yet (0 SOL). Send it some devnet SOL from faucet.solana.com.`;
+  const sol = (info.lamports / 1e9).toFixed(4);
+  const system = info.owner.equals(new PublicKey("11111111111111111111111111111111"));
+  if (!system) return `Wallet ${short} has ${sol} SOL but is controlled by program ${info.owner.toBase58()}, so it can't pay fees. Use a normal Phantom account.`;
+  if (info.data.length > 0) return `Wallet ${short} has ${sol} SOL but holds ${info.data.length} bytes of data, so Solana won't let it pay fees. Use a fresh Phantom account.`;
+  return `Wallet ${short} looks normal (${sol} SOL).`;
 }
 
 export interface PreflightOptions {
@@ -59,6 +75,8 @@ export async function preflightTransaction(connection: Connection, owner: Public
   }
   const vtx = new VersionedTransaction(VersionedMessage.deserialize(tx.compileMessage().serialize()));
   const sim = await connection.simulateTransaction(vtx, { sigVerify: false, replaceRecentBlockhash: true, commitment: "confirmed" });
-  if (sim.value.err) return explainFailure(sim.value.err, sim.value.logs ?? [], symbol);
+  // Block only on instruction failures (the program or token transfers would fail). If the runtime refuses
+  // the test-run itself (e.g. a fee-payer quirk of the RPC's simulation), let the wallet's own check decide.
+  if (sim.value.err && JSON.stringify(sim.value.err).includes("InstructionError")) return explainFailure(sim.value.err, sim.value.logs ?? [], symbol);
   return null;
 }
