@@ -24,3 +24,4 @@ export { parseContributionCalendar } from "./accounts/github";
 export { LICHESS_SCOPE } from "./accounts/lichess";
 export { telegramMemberCount } from "./accounts/telegram-count";
 export { encryptToken, decryptToken } from "./accounts/crypto";
+export * from "./integrity";

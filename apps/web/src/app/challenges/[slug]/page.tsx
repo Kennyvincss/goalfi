@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Activity, CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
 import { prisma } from "@goalfi/db";
-import { appMetric, evaluateSuccessRule, formatUsd, progressFraction, PROVIDER_INFO, reviewDeadline, SuccessRuleSchema, type AccountProviderId } from "@goalfi/core";
-import { accountReadyFor, challengeAccess, listEvidence, measuredBy, providerSlug, resolutionReport } from "@goalfi/services";
+import { appMetric, easyToGameReason, evaluateSuccessRule, formatUsd, progressFraction, PROVIDER_INFO, reviewDeadline, SuccessRuleSchema, type AccountProviderId } from "@goalfi/core";
+import { accountReadyFor, challengeAccess, participantPositions, listEvidence, measuredBy, providerSlug, resolutionReport } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { ProbabilityBar } from "@/components/challenge-card";
 import { getCurrentUser } from "@/lib/server/auth";
 import { actorOf, services } from "@/lib/server/services";
 import { toEvidenceItem } from "@/lib/server/evidence-view";
-import { timeRemaining } from "@/lib/utils";
+import { cn, timeRemaining } from "@/lib/utils";
 import { ConfirmPanel } from "./_panels/confirm-panel";
 import { MarketSetupPanel } from "./_panels/market-setup-panel";
 import { JoinButton } from "./_panels/join-button";
@@ -47,7 +47,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
       community: { select: { slug: true, name: true } },
       creator: { select: { username: true } },
       roles: { select: { role: true, user: { select: { username: true } } } },
-      participants: { where: { status: { not: "WITHDRAWN" } }, select: { userId: true, status: true, user: { select: { username: true } } } },
+      participants: { where: { status: { not: "WITHDRAWN" } }, select: { userId: true, status: true, betAgainstAt: true, user: { select: { username: true } } } },
       market: { include: { snapshots: { orderBy: { takenAt: "desc" }, take: 1 } } },
     },
   });
@@ -67,6 +67,9 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
   const providerName = metric ? PROVIDER_INFO[metric.provider].name : "";
   const acct = personal && user ? await prisma.connectedAccount.findUnique({ where: { userId_provider: { userId: user.id, provider: metric!.provider as AccountProviderId } } }) : null;
   const acctReady = !!metric && accountReadyFor(acct, metric);
+  const easyToGame = easyToGameReason(c);
+  const positions = c.market ? await participantPositions(ctx, c.id) : new Map<string, { yes: bigint; no: bigint }>();
+  const flagged = c.participants.filter((p) => p.betAgainstAt);
   const connectHref = metric && personal ? `/api/accounts/${providerSlug(metric.provider as AccountProviderId)}/connect?next=${encodeURIComponent(`/challenges/${c.slug}`)}` : "";
   const joined = !!user && c.participants.some((p) => p.userId === user.id);
   const m = c.market;
@@ -125,6 +128,14 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
               <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />Review deadline {reviewDeadline(c.endDate, c.reviewDeadlineHours)!.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: evidence not approved by then counts as rejected</p>
             )}
             <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.autoSettle ? (app ? "Settles automatically once late data has synced and the dispute window has passed" : "Settles automatically once everything is reviewed and the dispute window has passed") : "An administrator confirms the result after review"}</p>
+            {metric?.provider === "GOOGLE_HEALTH" && <p className="text-muted-foreground">Only data recorded by a Fitbit or Pixel Watch counts. Steps or workouts typed in by hand, and edited sleep, don’t.</p>}
+            {metric?.provider === "LICHESS" && <p className="text-muted-foreground">Games shorter than 5 moves each don’t count, and at most 3 games a day against the same opponent count.</p>}
+            {easyToGame && <p className="rounded-md bg-warning/10 px-3 py-2 text-warning"><b>Easier to game.</b> {easyToGame}</p>}
+            {m && (
+              <p className="flex items-start gap-2"><Scale className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>Fair play: participants and the creator can only bet YES. Anyone found holding NO on their own challenge is flagged below, and loses 50 reputation if they don’t complete it.{flagged.length > 0 && <b className="text-no"> {flagged.length} participant{flagged.length === 1 ? " has" : "s have"} bet against themselves.</b>}</span>
+              </p>
+            )}
             <p className="text-muted-foreground">Evidence: {c.evidenceReq}</p>
             {verifiers.length > 0 && <p className="text-muted-foreground">Verifiers: {verifiers.map((v) => `@${v.user.username}`).join(", ")}</p>}
           </CardContent>
@@ -224,7 +235,14 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             <CardContent>
               <ul className="flex flex-wrap gap-2 text-sm">
                 {c.participants.slice(0, 50).map((p) => (
-                  <li key={p.userId}><Link href={`/profile/${p.user.username}`} className="rounded-full bg-muted px-2.5 py-1 hover:text-primary">@{p.user.username}{p.status === "COMPLETED" && " ✓"}</Link></li>
+                  <li key={p.userId}>
+                    <Link href={`/profile/${p.user.username}`} className={cn("rounded-full px-2.5 py-1 hover:text-primary", p.betAgainstAt ? "bg-no-soft text-no" : "bg-muted")}
+                      title={p.betAgainstAt ? "Holds NO shares on their own challenge" : undefined}>
+                      @{p.user.username}{p.status === "COMPLETED" && " ✓"}
+                      {(positions.get(p.userId)?.yes ?? 0n) > 0n && <span className="ml-1 text-xs text-yes">YES</span>}
+                      {p.betAgainstAt && <span className="ml-1 text-xs">⚠ bet NO</span>}
+                    </Link>
+                  </li>
                 ))}
               </ul>
             </CardContent>

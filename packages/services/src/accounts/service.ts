@@ -3,6 +3,8 @@ import {
   appMetric,
   civilDayInWindow,
   describeDailyTarget,
+  establishedMember,
+  MAX_EVENTS_PER_OPPONENT_PER_DAY,
   formatMetricValue,
   meetsDailyTarget,
   PROVIDER_INFO,
@@ -11,7 +13,7 @@ import {
   type AppMetricDef,
 } from "@goalfi/core";
 import type { Prisma } from "@goalfi/db";
-import { link, type Actor, type ServiceContext } from "../context";
+import { link, trustDays, type Actor, type ServiceContext } from "../context";
 import { conflict, invalid } from "../errors";
 import { notify } from "../notifications";
 import { audit } from "../audit";
@@ -142,8 +144,8 @@ export async function syncAccount(
     for (const e of data.events) {
       await ctx.db.activityEvent.upsert({
         where: { userId_provider_metric_externalId: { userId, provider, metric: e.metric, externalId: e.externalId } },
-        update: { occurredAt: e.occurredAt, value: e.value, fetchedAt: ctx.now() },
-        create: { userId, provider, metric: e.metric, externalId: e.externalId, occurredAt: e.occurredAt, value: e.value },
+        update: { occurredAt: e.occurredAt, value: e.value, groupKey: e.groupKey ?? null, fetchedAt: ctx.now() },
+        create: { userId, provider, metric: e.metric, externalId: e.externalId, occurredAt: e.occurredAt, value: e.value, groupKey: e.groupKey ?? null },
       });
     }
     await ctx.db.connectedAccount.update({ where: { id: a.id }, data: { lastSyncAt: ctx.now(), status: "ACTIVE", lastError: null } });
@@ -229,8 +231,16 @@ async function windowValues(ctx: ServiceContext, c: ConnectedChallenge, metric: 
   // challenges at local midnight, so these are the participant's local days.
   const events = await ctx.db.activityEvent.findMany({ where: { userId, metric: metric.id, occurredAt: { gte: c.startDate, lt: c.endDate } } });
   const out = new Map<number, number>();
-  for (const e of events) {
+  const perGroup = new Map<string, number>();
+  for (const e of [...events].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime())) {
     const k = Math.floor((e.occurredAt.getTime() - c.startDate.getTime()) / DAY);
+    if (e.groupKey) {
+      // Anti-farming: only the first few events per opponent per day count.
+      const g = `${k}:${e.groupKey}`;
+      const n = (perGroup.get(g) ?? 0) + 1;
+      perGroup.set(g, n);
+      if (n > MAX_EVENTS_PER_OPPONENT_PER_DAY) continue;
+    }
     out.set(k, (out.get(k) ?? 0) + e.value);
   }
   return [...out].map(([k, v]) => [isoDay(new Date(c.startDate.getTime() + k * DAY + 12 * 3_600_000)), v]);
@@ -254,7 +264,14 @@ async function materialize(ctx: ServiceContext, c: ConnectedChallenge, metric: A
 /** Community metrics: the current value, or null if it can't be measured right now. */
 async function communityLevel(ctx: ServiceContext, cfg: AccountsConfig | null, metric: AppMetricDef, communityId: string | null, f: Fetch): Promise<number | null> {
   if (!communityId) return null;
-  if (metric.id === "community_members") return ctx.db.communityMember.count({ where: { communityId } });
+  if (metric.id === "community_members") {
+    // Only established members count, so a burst of fresh fake accounts doesn't move the number.
+    const members = await ctx.db.communityMember.findMany({
+      where: { communityId },
+      select: { user: { select: { createdAt: true, walletAddress: true, telegramId: true, reputationScore: true } } },
+    });
+    return members.filter((m) => establishedMember(m.user, ctx.now(), trustDays(ctx))).length;
+  }
   if (metric.id === "telegram_members") {
     const comm = await ctx.db.community.findUnique({ where: { id: communityId }, select: { telegramChatId: true } });
     if (!comm?.telegramChatId || !cfg?.telegram) return null;

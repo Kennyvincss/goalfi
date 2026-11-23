@@ -73,6 +73,9 @@ export function TradePanel() {
     : fallback ? minOutWithSlippage(BigInt(Math.floor(estimate!.sharesOut)), slippage + 200) : null;
   const overBalance = action === "SELL" && owned !== null && amount !== null && amount > owned;
   const overCollateral = action === "BUY" && holdings && amount !== null && amount > holdings.collateral;
+  const maxTrade = BigInt(cfg.maxTradeMicro);
+  const overLimit = action === "BUY" && amount !== null && amount > maxTrade;
+  const noBlocked = action === "BUY" && side === "NO" && !!cfg.noBlockedReason;
 
   async function execute() {
     if (!wallet.publicKey || !amount || !minOut) return;
@@ -118,7 +121,7 @@ export function TradePanel() {
 
         <div className="grid grid-cols-2 gap-2">
           {(["YES", "NO"] as const).map((s) => (
-            <button key={s} onClick={() => { setSide(s); clear(); }} aria-pressed={side === s}
+            <button key={s} onClick={() => { setSide(s); clear(); }} aria-pressed={side === s} title={s === "NO" && action === "BUY" && cfg.noBlockedReason ? cfg.noBlockedReason : undefined}
               className={cn("rounded-md border-2 px-3 py-2.5 text-left transition-colors",
                 side === s ? (s === "YES" ? "border-yes bg-yes-soft" : "border-no bg-no-soft") : "border-transparent bg-muted")}>
               <div className={cn("text-sm font-semibold", s === "YES" ? "text-yes" : "text-no")}>{s}</div>
@@ -127,7 +130,10 @@ export function TradePanel() {
           ))}
         </div>
 
-        {gate ?? (
+        {cfg.easyToGame && <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning"><b>Easier to game.</b> {cfg.easyToGame}</p>}
+        {noBlocked ? (
+          <p className="rounded-md bg-muted px-3 py-2 text-sm" role="note">{cfg.noBlockedReason}</p>
+        ) : gate ?? (
           <>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-sm">
@@ -188,8 +194,8 @@ export function TradePanel() {
               <p className="text-sm text-warning">Switch to your linked wallet ({cfg.linkedWallet.slice(0, 4)}…{cfg.linkedWallet.slice(-4)}) so the trade is credited to your account.</p>
             ) : (
               <Button className="w-full" size="lg" variant={side === "YES" ? "yes" : "no"} onClick={execute}
-                disabled={(!validQuote && !fallback) || !minOut || !!stage || !!overBalance || !!overCollateral}>
-                {stage ?? (overBalance ? "Not enough shares" : overCollateral ? `Not enough ${cfg.symbol}` : fallback ? `Buy ${side} (estimated minimum)` : `${action === "BUY" ? "Buy" : "Sell"} ${side}`)}
+                disabled={(!validQuote && !fallback) || !minOut || !!stage || !!overBalance || !!overCollateral || overLimit}>
+                {stage ?? (overLimit ? `Max ${fromMicro(maxTrade)} ${cfg.symbol} per trade` : overBalance ? "Not enough shares" : overCollateral ? `Not enough ${cfg.symbol}` : fallback ? `Buy ${side} (estimated minimum)` : `${action === "BUY" ? "Buy" : "Sell"} ${side}`)}
               </Button>
             )}
           </>

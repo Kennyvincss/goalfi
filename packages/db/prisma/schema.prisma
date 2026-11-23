@@ -347,6 +347,8 @@ model Participant {
   status      ParticipantStatus @default(JOINED)
   joinedAt    DateTime          @default(now()) @map("joined_at")
   completedAt DateTime?
+  /// Set when this participant was found holding NO shares on their own challenge (bet against themselves).
+  betAgainstAt DateTime?
 
   evidence Evidence[]
 
@@ -645,6 +647,7 @@ enum ReputationActivity {
   CHALLENGE_CREATED_SUCCESSFUL
   FAIR_VERIFICATION
   PENALTY_EVIDENCE_OVERTURNED
+  PENALTY_SELF_BET
 }
 
 model ReputationEvent {
@@ -834,6 +837,8 @@ model ActivityEvent {
   externalId String
   occurredAt DateTime
   value      Float           @default(1)
+  /// Anti-farming bucket, e.g. the opponent of a chess game (repeat games against one opponent are capped).
+  groupKey   String?
   fetchedAt  DateTime        @default(now())
 
   @@unique([userId, provider, metric, externalId])

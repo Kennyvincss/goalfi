@@ -1,4 +1,4 @@
-import { evaluateResolution, resolutionAwards, SuccessRuleSchema, verifierAwards, type ResolutionReport } from "@goalfi/core";
+import { award, evaluateResolution, resolutionAwards, SuccessRuleSchema, verifierAwards, type ResolutionReport } from "@goalfi/core";
 import { z } from "zod";
 import { requireView } from "./authz";
 import { link, type Actor, type ServiceContext } from "./context";
@@ -6,6 +6,7 @@ import { conflict, forbidden, invalid, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { applyAwards } from "./reputation";
 import { audit } from "./audit";
+import { scanSelfBets } from "./integrity";
 import { SYNC_GRACE_HOURS } from "./accounts/service";
 
 /** Gather DB state for the core resolution gate (actor-independent). */
@@ -96,6 +97,8 @@ export async function executeResolution(
   await audit(ctx.db, resolverId, resolverId ? "challenge.resolve_started" : "challenge.auto_resolve_started", "Challenge", c.id, { outcome, ...meta } as object);
 
   if (m) {
+    // Catch bets against oneself placed outside GoalFi with a linked wallet (before winners can claim).
+    await scanSelfBets(ctx, c.id).catch((e) => console.error("[self-bet scan]", (e as Error).message));
     const gw = ctx.gateway;
     if (!gw || !m.marketAddress) {
       await ctx.db.challenge.update({ where: { id: c.id }, data: { status: "IN_REVIEW" } });
@@ -137,7 +140,7 @@ export async function finalizeResolution(ctx: ServiceContext, challengeId: strin
   if (c.status === "RESOLVED") return c;
   const report = await resolutionReportInternal(ctx, challengeId);
   const now = ctx.now();
-  const participants = await ctx.db.participant.findMany({ where: { challengeId, status: { not: "WITHDRAWN" } }, select: { userId: true } });
+  const participants = await ctx.db.participant.findMany({ where: { challengeId, status: { not: "WITHDRAWN" } }, select: { userId: true, betAgainstAt: true } });
   const evidence = await ctx.db.evidence.findMany({ where: { challengeId, status: { in: ["APPROVED", "REJECTED"] }, supersededBy: null }, include: { verifications: true } });
 
   const resolved = await ctx.db.$transaction(async (tx) => {
@@ -157,6 +160,8 @@ export async function finalizeResolution(ctx: ServiceContext, challengeId: strin
     await applyAwards(tx, [
       ...resolutionAwards({ challengeId, creatorId: c.creatorId, participantCount: participants.length, completers: report.completers }),
       ...evidence.flatMap((e) => verifierAwards(e.id, e.status as "APPROVED" | "REJECTED", e.verifications)),
+      // Bet against yourself and then didn't complete: the pattern of a sabotaged challenge.
+      ...participants.filter((p) => p.betAgainstAt && !completers.has(p.userId)).map((p) => award(p.userId, "PENALTY_SELF_BET", challengeId)),
     ]);
     return true;
   });

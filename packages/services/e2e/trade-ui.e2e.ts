@@ -224,6 +224,11 @@ async function main() {
     state.yesBal -= SIM_OUT;
     state.colBal += 10_000_000n;
 
+    // Fair play: this trader created the challenge, so GoalFi's screen won't let them buy NO.
+    await page.getByRole("button", { name: /^NO/ }).first().click();
+    ok("creator can't buy NO on their own challenge", await page.getByText("You created this challenge, so you can only bet on it succeeding (YES).").isVisible());
+    await page.getByRole("button", { name: /^YES/ }).first().click();
+
     // Portfolio: positions found by scanning the wallet's token accounts.
     await page.goto(`${B}/portfolio`);
     await page.getByText("Trade e2e challenge").first().waitFor({ timeout: 15000 }).catch(() => {});

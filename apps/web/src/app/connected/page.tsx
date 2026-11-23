@@ -28,6 +28,7 @@ function SuggestionCard({ s, communityId }: { s: AppSuggestion; communityId?: st
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="muted">{s.durationDays === 1 ? "Today" : `${s.durationDays} days`}</Badge>
           <Badge variant="muted">Verified by {PROVIDER_INFO[m.provider].name}</Badge>
+          {m.easyToGame && <Badge variant="outline" className="border-warning text-warning" title={m.easyToGame}>Easier to game</Badge>}
         </div>
         <CardTitle className="text-base">{s.title}</CardTitle>
         <CardDescription>{s.description}</CardDescription>

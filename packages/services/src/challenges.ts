@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 import {
+  accountOldEnough,
   appMetric,
+  easyToGameReason,
+  marketLimits,
   PROVIDER_INFO,
   type AccountProviderId,
   canJoin,
@@ -16,11 +19,12 @@ import {
 import type { Prisma } from "@goalfi/db";
 import { z } from "zod";
 import { challengeAccess, requireView } from "./authz";
-import { link, type Actor, type ServiceContext } from "./context";
+import { link, trustDays, type Actor, type ServiceContext } from "./context";
 import { conflict, forbidden, invalid, isUniqueViolation, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { audit } from "./audit";
 import { accountReadyFor } from "./accounts/service";
+import { holdsNo } from "./integrity";
 
 function slugify(title: string): string {
   const base = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "challenge";
@@ -54,6 +58,16 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
   if (input.market.type === "MULTI_OUTCOME" || input.market.type === "COMMITMENT_VAULT")
     throw invalid("This market type is not enabled yet. It's pending devnet verification (see docs/PM_AMM_INTEGRATION.md). Use a YES/NO market or no market.");
   if (input.market.type !== "NONE" && !ctx.gateway) throw new ServiceError(503, "Market creation is not configured on this server");
+  if (input.market.type === "BINARY" && actor.role !== "PLATFORM_ADMIN") {
+    // Caps what a group could take from the pool by manipulating its own outcome.
+    const creator = await ctx.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { reputationScore: true } });
+    const easy = easyToGameReason({ verificationMethod: input.verification, appMetric: input.app?.metric ?? null });
+    const { maxInitialLiquidityUsdc } = marketLimits({ easyToGame: !!easy, creatorReputation: creator.reputationScore, trustedParticipants: 0 });
+    if (input.market.initialLiquidityUsdc > maxInitialLiquidityUsdc) {
+      const msg = `At most ${maxInitialLiquidityUsdc} for this challenge (${easy ? "this metric is easier to game; " : ""}the limit grows with your reputation)`;
+      throw invalid("Validation failed", { initialLiquidityUsdc: [msg] });
+    }
+  }
 
   const verifiers = await usersByUsername(ctx, input.verifierUsernames, "verifier");
   const admins = await usersByUsername(ctx, input.adminUsernames, "administrator");
@@ -238,6 +252,15 @@ export async function joinChallenge(ctx: ServiceContext, actor: Actor, challenge
   if (c.maxParticipants) {
     const n = await ctx.db.participant.count({ where: { challengeId } });
     if (n >= c.maxParticipants) throw conflict("This challenge is full");
+  }
+  if (c.marketEnabled) {
+    const me = await ctx.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { createdAt: true, walletAddress: true } });
+    const days = trustDays(ctx);
+    if (!accountOldEnough(me.createdAt, ctx.now(), days))
+      throw conflict(`Accounts can join challenges that have a prediction market once they’re ${days} day${days === 1 ? "" : "s"} old. This stops groups from creating fake accounts to swing a result.`);
+    const market = await ctx.db.market.findUnique({ where: { challengeId }, select: { id: true, marketAddress: true } });
+    if (market && (await holdsNo(ctx, { id: actor.id, walletAddress: me.walletAddress }, market)))
+      throw conflict("You hold NO shares on this challenge’s market. Participants can’t bet against themselves: sell them first, then join.");
   }
   const metric = c.verificationMethod === "CONNECTED_APP" ? appMetric(c.appMetric) : null;
   if (metric && metric.source !== "level") {

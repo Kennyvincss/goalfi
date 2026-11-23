@@ -301,6 +301,7 @@ dispute window, then resolves the market with the computed outcome.
 | `ACCOUNT_TOKEN_KEY` | optional | optional | 32+ random characters, encrypts connected-account tokens (**secret**). Turns on Lichess. Changing it disconnects everyone |
 | `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET` | optional | optional | Google OAuth client (step 10b; secret is **secret**) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | optional | optional | GitHub OAuth app (step 10c; secret is **secret**) |
+| `TRUST_MIN_ACCOUNT_DAYS` | optional | optional | days before a new account can join challenges with a market and count as a community member (default `7`; set `0` while testing with brand-new accounts) |
 | `GOALFI_ENABLE_MAINNET` | | | **leave unset**. See below |
 
 ---

@@ -25,6 +25,8 @@ export function services(): ServiceContext {
     storage: storageFromEnv(process.env),
     appUrl: resolveAppUrl(process.env).url,
     now: () => new Date(),
+    // Days before an account can join challenges with a market / count as a community member (default 7).
+    trustMinAccountDays: process.env.TRUST_MIN_ACCOUNT_DAYS?.trim() ? Math.max(0, Number(process.env.TRUST_MIN_ACCOUNT_DAYS)) : undefined,
   };
   return ctx;
 }

@@ -15,10 +15,11 @@ export class MemoryStorage implements EvidenceStorage {
   async get(key: string) { return this.objects.get(key) ?? null; }
 }
 
-export function makeCtx(start = new Date()) {
+/** Account-age rules default to off in tests (users are created moments before they act); integrity tests turn them on. */
+export function makeCtx(start = new Date(), trustMinAccountDays = 0) {
   const clock = { now: start };
   const gateway = new FakeGateway(() => clock.now);
-  const ctx: ServiceContext = { db: prisma, gateway, storage: new MemoryStorage(), appUrl: "https://goalfi.test", now: () => clock.now };
+  const ctx: ServiceContext = { db: prisma, gateway, storage: new MemoryStorage(), appUrl: "https://goalfi.test", now: () => clock.now, trustMinAccountDays };
   return { ctx, gateway, clock, advance: (ms: number) => (clock.now = new Date(clock.now.getTime() + ms)) };
 }
 

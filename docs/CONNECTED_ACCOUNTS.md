@@ -38,6 +38,20 @@ OpenAPI spec (`@lichess-org/types`).
 - One provider account can be connected to only one GoalFi user, so nobody counts twice.
 - Disconnecting revokes access and deletes stored raw data. Evidence already used stays.
 
+## Manipulation safeguards
+
+Participants control the outcome of their own challenge, so a group could try to rig a market.
+GoalFi makes that expensive and visible:
+
+| Risk | Safeguard |
+|---|---|
+| Typing in fake steps or workouts | Google data is read **wearables-only** (`dataSourceFamily: users/me/dataSourceFamilies/google-wearables`, which per the API "excludes manually logged data"); sleeps with `metadata.manuallyEdited` are ignored. |
+| Betting NO on yourself, then failing on purpose | GoalFi's trade screen offers participants and the creator only YES. Anyone holding NO can't join. NO buys by participants (through GoalFi, or found in their linked wallet when the challenge settles) are flagged publicly on the challenge page, and a participant who bet NO and failed loses 50 reputation (`PENALTY_SELF_BET`). The pm-AMM market itself is open on-chain, so a second, unlinked wallet can't be stopped, only limited (below). |
+| Big profits from a rigged small market | Opening liquidity is capped by the creator's reputation (100 / 200 / 500, a quarter for easier-to-game metrics), which bounds what can be taken from the pool. GoalFi's trade screen caps a single buy at 20 + 20 per established participant (max 500; a quarter for easier-to-game metrics). Platform admins are exempt from the liquidity cap. |
+| Fake accounts | Accounts younger than `TRUST_MIN_ACCOUNT_DAYS` (default 7) can't join challenges with a market. Community-size challenges count only established members (old enough, plus a linked wallet, Telegram account or reputation). One provider account can back only one GoalFi user. |
+| Chess farming | Lichess games under 10 half-moves don't count; at most 3 games per opponent per challenge day count. |
+| Weak metrics | GitHub contributions and community/Telegram member counts are labelled **Easier to game** in the builder, on suggestions, on the challenge page and in the trade panel, and get smaller market limits. |
+
 ## Considered and not supported
 
 | Source | Why not |

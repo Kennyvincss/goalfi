@@ -42,5 +42,7 @@ export interface MarketGateway {
   ): Promise<{ signature: string | null }>;
   fetchMarket(address: string): Promise<OnchainMarketState | null>;
   verifyUserTx(signature: string, p: { owner: string; market: string }): Promise<UserTxResult>;
+  /** YES / NO shares a wallet currently holds on a market (micro-units). */
+  readHoldings(p: { owner: string; market: string }): Promise<{ yes: bigint; no: bigint }>;
   explorerTxUrl(signature: string): string;
 }
