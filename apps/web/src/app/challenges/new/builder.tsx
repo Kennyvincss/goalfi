@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { ChallengeTemplate, FitnessSuggestion } from "@goalfi/core";
+import {
+  allowedRules, APP_METRICS, describeDailyTarget, formatMetricValue, PROVIDER_INFO,
+  type AppMetricId, type AppSuggestion, type ChallengeTemplate,
+} from "@goalfi/core";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/input";
@@ -42,7 +45,8 @@ interface FormState {
   reviewDeadlineHours: number;
   autoSettle: boolean;
   verification: "MANUAL" | "CONNECTED_APP";
-  /** CONNECTED_APP + daily_completion: steps that make a day count. */
+  /** CONNECTED_APP: what is measured, and (for "N days" rules) what makes a day count. */
+  appMetric: AppMetricId;
   dailyTarget: number;
   marketType: "BINARY" | "NONE";
   marketQuestion: string;
@@ -60,7 +64,7 @@ function initialState(): FormState {
     rules: "", successCriteria: "", ruleType: "individual_threshold", unit: "km", threshold: 50, target: 1000, requiredDays: 30, minParticipants: 1,
     evidenceReq: "", participationReq: "", startDate: toLocalInput(start), endDate: toLocalInput(new Date(start.getTime() + 7 * 86_400_000)),
     verifiers: "", admins: "", requiredApprovals: 1, disputeWindowHours: 24, maxParticipants: "",
-    hasReviewDeadline: true, reviewDeadlineHours: 48, autoSettle: true, verification: "MANUAL", dailyTarget: 8000,
+    hasReviewDeadline: true, reviewDeadlineHours: 48, autoSettle: true, verification: "MANUAL", appMetric: "steps", dailyTarget: 8000,
     marketType: "BINARY", marketQuestion: "", initialPricePct: 50, initialLiquidityUsdc: 50,
   };
 }
@@ -74,10 +78,21 @@ function dayStart(day: string, add = 0): string {
 /** Last whole local day covered by an end instant (the end is midnight after it). */
 const lastDayOf = (end: string) => toLocalInput(new Date(new Date(end).getTime() - 60_000)).slice(0, 10);
 
-const APP_RULES = "Steps are read automatically from each participant’s connected Google Health account (Fitbit, Pixel Watch). Only steps recorded on the challenge days count. Steps that sync up to 2 hours after the end still count.";
-const APP_EVIDENCE = "Daily step totals synced automatically from each participant’s Google Health account.";
+const SOURCE: Record<string, string> = { GOOGLE_HEALTH: "Google Health", GITHUB: "GitHub", LICHESS: "Lichess", GOALFI: "GoalFi", TELEGRAM: "the linked Telegram group" };
+function appRules(id: AppMetricId): string {
+  const m = APP_METRICS[id];
+  if (m.source === "level") return `${m.label} is counted automatically by GoalFi${m.provider === "TELEGRAM" ? " from the community’s linked Telegram group" : ""}. The count when the challenge ends decides the outcome.`;
+  return `${m.description} is read automatically from each participant’s connected ${SOURCE[m.provider]} account. Only activity on the challenge days counts. Data that syncs up to 2 hours after the end still counts.`;
+}
+function appEvidence(id: AppMetricId): string {
+  const m = APP_METRICS[id];
+  return m.source === "level" ? `${m.label}, counted automatically by GoalFi.` : `Daily ${m.label.toLowerCase()} synced automatically from each participant’s ${SOURCE[m.provider]} account.`;
+}
+const isAppText = (t: string) => (Object.keys(APP_METRICS) as AppMetricId[]).some((id) => t === appRules(id) || t === appEvidence(id));
+const toTime = (mins: number) => formatMetricValue(APP_METRICS.wake_time, mins);
+const fromTime = (v: string) => { const [h, m] = v.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 
-export type BuilderSuggestion = FitnessSuggestion & { communityId?: string };
+export type BuilderSuggestion = AppSuggestion & { communityId?: string };
 
 function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean): FormState {
   const base = initialState();
@@ -85,16 +100,16 @@ function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean): FormSt
   const r = s.successRule;
   return {
     ...base,
-    templateId: `fitness:${s.id}`, title: s.title, description: s.description, categorySlug: "fitness",
+    templateId: `app:${s.id}`, title: s.title, description: s.description, categorySlug: APP_METRICS[s.metric].category,
     communityId: s.communityId ?? "", visibility: s.communityId ? "COMMUNITY" : "PUBLIC", kind: s.scope === "group" ? "GROUP" : "PERSONAL",
-    rules: APP_RULES, successCriteria: s.successCriteria, evidenceReq: APP_EVIDENCE, verification: "CONNECTED_APP",
+    rules: appRules(s.metric), successCriteria: s.successCriteria, evidenceReq: appEvidence(s.metric), verification: "CONNECTED_APP", appMetric: s.metric,
     startDate: dayStart(today), endDate: dayStart(today, s.durationDays),
-    ruleType: r.type, unit: "steps",
+    ruleType: r.type, unit: APP_METRICS[s.metric].unit,
     threshold: r.type === "individual_threshold" ? r.threshold : base.threshold,
     target: r.type === "collective_total" ? r.target : base.target,
     requiredDays: r.type === "daily_completion" ? r.requiredDays : base.requiredDays,
     minParticipants: "minParticipants" in r ? r.minParticipants : 1,
-    dailyTarget: s.fitness.dailyTarget ?? base.dailyTarget,
+    dailyTarget: s.app.dailyTarget ?? APP_METRICS[s.metric].daily.default,
     hasReviewDeadline: false, autoSettle: true,
     marketType: marketsAvailable ? "BINARY" : "NONE", marketQuestion: s.marketQuestion,
     initialPricePct: Math.round(s.initialPriceBps / 100),
@@ -106,13 +121,13 @@ const STEPS = ["Template", "Basics", "Goal & evidence", "Schedule & verification
 /** Which builder step owns each field (server validation keys use the same names). */
 const FIELD_STEP: Record<string, number> = {
   title: 1, description: 1, categorySlug: 1, communityId: 1, visibility: 1,
-  rules: 2, successCriteria: 2, successRule: 2, unit: 2, amount: 2, evidenceReq: 2, fitness: 2, verification: 2,
+  rules: 2, successCriteria: 2, successRule: 2, unit: 2, amount: 2, evidenceReq: 2, app: 2, verification: 2,
   startDate: 3, endDate: 3, verifierUsernames: 3, reviewDeadlineHours: 3, requiredApprovals: 3, disputeWindowHours: 3, maxParticipants: 3, adminUsernames: 3,
   marketQuestion: 4, market: 4, initialLiquidityUsdc: 4,
 };
 const FIELD_LABEL: Record<string, string> = {
   title: "Title", description: "Description", communityId: "Community", rules: "Rules", successCriteria: "Success criteria",
-  successRule: "How success is measured", fitness: "Fitness app", verification: "How progress is checked", unit: "Unit", amount: "Amount", evidenceReq: "Evidence requirements", startDate: "Start",
+  successRule: "How success is measured", app: "What is measured", verification: "How progress is checked", unit: "Unit", amount: "Amount", evidenceReq: "Evidence requirements", startDate: "Start",
   endDate: "End", reviewDeadlineHours: "Review deadline", verifierUsernames: "Verifiers", requiredApprovals: "Approvals required", disputeWindowHours: "Dispute window",
   marketQuestion: "Market question", market: "Market", initialLiquidityUsdc: "Initial liquidity",
 };
@@ -136,8 +151,12 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
     if (!(amount > 0)) e.amount = "Enter a number above 0.";
     if (f.ruleType !== "collective_total" && !(f.minParticipants >= 1)) e.amount = "At least 1 participant must succeed.";
     if (f.verification === "CONNECTED_APP") {
-      if (f.ruleType === "milestone") e.amount = "App-verified challenges need a step amount, a group total or a number of days.";
-      if (f.ruleType === "daily_completion" && !(f.dailyTarget >= 100)) e.amount = "Set how many steps make a day count (at least 100).";
+      const m = APP_METRICS[f.appMetric];
+      if (!(allowedRules(m) as string[]).includes(f.ruleType))
+        e.amount = m.source === "level" ? "Community size is one number: use “reaches an amount” with 1 participant." : m.better === "lower" ? `${m.label} only works with “on N days” goals.` : "App-verified challenges need an amount, a group total or a number of days.";
+      else if (f.ruleType === "daily_completion" && !(f.dailyTarget >= m.daily.min && f.dailyTarget <= m.daily.max))
+        e.amount = `A day must count between ${describeDailyTarget(m, m.daily.min)} and ${describeDailyTarget(m, m.daily.max)}.`;
+      if (m.source === "level" && !f.communityId) e.app = `${m.label} challenges belong to a community: pick one under Basics.`;
     }
     if (len(f.evidenceReq) < 5) e.evidenceReq = "Say what proof people should upload (at least 5 characters).";
   }
@@ -166,9 +185,10 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
 }
 
 export function ChallengeBuilder({
-  templates, categories, communities, collateralSymbol, marketsAvailable, fitness, suggestion,
+  templates, categories, communities, collateralSymbol, marketsAvailable, apps, suggestion,
 }: {
-  fitness: { available: boolean; connected: boolean };
+  /** Per provider: configured on this server, and connected by this user. */
+  apps: Record<string, { available: boolean; connected: boolean; telegram?: boolean }>;
   suggestion: BuilderSuggestion | null;
   templates: ChallengeTemplate[];
   categories: { slug: string; name: string }[];
@@ -185,18 +205,33 @@ export function ChallengeBuilder({
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
   const app = f.verification === "CONNECTED_APP";
-  function setVerification(v: FormState["verification"]) {
+  const metric = APP_METRICS[f.appMetric];
+  const metricAvailable = (id: AppMetricId) => apps[APP_METRICS[id].provider]?.available ?? false;
+  const anyAppAvailable = (Object.keys(APP_METRICS) as AppMetricId[]).some(metricAvailable);
+  /** Switch to app verification and/or another metric, keeping the form consistent with what the metric allows. */
+  function chooseApp(id: AppMetricId) {
     setF((s) => {
-      if (v === s.verification) return s;
-      if (v === "MANUAL") return { ...s, verification: v, hasReviewDeadline: true, evidenceReq: s.evidenceReq === APP_EVIDENCE ? "" : s.evidenceReq };
-      // App-verified: whole local days, steps as the unit, no verifiers or review deadline.
+      const m = APP_METRICS[id];
+      const rules = allowedRules(m) as string[];
+      const ruleType = (rules.includes(s.ruleType) ? s.ruleType : rules[0]) as RuleType;
+      // App-verified: whole local days, no verifiers or review deadline.
       const first = s.startDate.slice(0, 10), last = lastDayOf(s.endDate);
       return {
-        ...s, verification: v, unit: "steps", ruleType: s.ruleType === "milestone" ? "individual_threshold" : s.ruleType,
-        evidenceReq: APP_EVIDENCE, hasReviewDeadline: false, autoSettle: true,
+        ...s, verification: "CONNECTED_APP", appMetric: id, unit: m.unit, ruleType,
+        minParticipants: m.source === "level" ? 1 : s.minParticipants,
+        dailyTarget: s.appMetric === id ? s.dailyTarget : m.daily.default,
+        rules: !s.rules || isAppText(s.rules) ? appRules(id) : s.rules,
+        evidenceReq: appEvidence(id), hasReviewDeadline: false, autoSettle: true, categorySlug: s.templateId ? s.categorySlug : m.category,
         startDate: dayStart(first), endDate: dayStart(last < first ? first : last, 1),
       };
     });
+  }
+  function setVerification(v: FormState["verification"]) {
+    if (v === "CONNECTED_APP") return chooseApp(metricAvailable(f.appMetric) ? f.appMetric : (Object.keys(APP_METRICS) as AppMetricId[]).find(metricAvailable) ?? "community_members");
+    setF((s) => (s.verification === v ? s : {
+      ...s, verification: v, hasReviewDeadline: true,
+      evidenceReq: isAppText(s.evidenceReq) ? "" : s.evidenceReq, rules: isAppText(s.rules) ? "" : s.rules,
+    }));
   }
 
   function applyTemplate(t: ChallengeTemplate | null) {
@@ -236,7 +271,7 @@ export function ChallengeBuilder({
     requiredApprovals: app ? 1 : f.requiredApprovals, disputeWindowHours: f.disputeWindowHours, maxParticipants: f.maxParticipants ? Number(f.maxParticipants) : undefined,
     reviewDeadlineHours: f.hasReviewDeadline && !app ? f.reviewDeadlineHours : undefined, autoSettle: f.autoSettle,
     verification: f.verification,
-    fitness: app ? { metric: "steps" as const, dailyTarget: f.ruleType === "daily_completion" ? f.dailyTarget : undefined } : undefined,
+    app: app ? { metric: f.appMetric, dailyTarget: f.ruleType === "daily_completion" ? f.dailyTarget : undefined } : undefined,
     verifierUsernames: app ? [] : list(f.verifiers), adminUsernames: list(f.admins), marketQuestion: f.marketQuestion || f.title,
     market: f.marketType === "NONE" ? { type: "NONE" } : { type: "BINARY", initialPriceBps: Math.round(f.initialPricePct * 100), initialLiquidityUsdc: f.initialLiquidityUsdc },
   });
@@ -304,10 +339,10 @@ export function ChallengeBuilder({
         {step === 0 && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Start from a template</h2>
-            {fitness.available && (
-              <Link href="/fitness" className="block rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm hover:border-primary">
-                <b>Step challenges that verify themselves.</b>{" "}
-                {fitness.connected ? "See challenges suggested from your Google Health steps." : "Connect Google Health and get challenges suggested from your real step counts."}
+            {anyAppAvailable && (
+              <Link href="/connected" className="block rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm hover:border-primary">
+                <b>Challenges that verify themselves.</b>{" "}
+                Connect Google Health, GitHub or Lichess and get challenges suggested from your real activity, or grow a community: no verifiers needed.
               </Link>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
@@ -371,47 +406,67 @@ export function ChallengeBuilder({
                   <div className="font-medium">Human verifiers</div>
                   <div className="text-muted-foreground">Participants upload proof; verifiers you choose approve it. Works for anything.</div>
                 </button>
-                <button type="button" disabled={!fitness.available} onClick={() => setVerification("CONNECTED_APP")} className={cn("rounded-lg border p-3 text-left text-sm disabled:opacity-50", app && "border-primary ring-2 ring-primary/20")}>
-                  <div className="font-medium">Google Health steps (automatic)</div>
-                  <div className="text-muted-foreground">Daily steps sync from each participant’s Fitbit or Pixel Watch. No verifiers, settles itself.</div>
-                  {!fitness.available && <div className="mt-1 text-xs text-warning">Not set up on this server yet.</div>}
+                <button type="button" onClick={() => setVerification("CONNECTED_APP")} className={cn("rounded-lg border p-3 text-left text-sm", app && "border-primary ring-2 ring-primary/20")}>
+                  <div className="font-medium">Connected app (automatic)</div>
+                  <div className="text-muted-foreground">Progress syncs from Google Health, GitHub, Lichess or community counts. No verifiers, settles itself.</div>
                 </button>
               </div>
-              {app && !fitness.connected && (
-                <p className="text-xs text-muted-foreground">
-                  You haven’t connected Google Health. You can still create this challenge, but everyone (you included) must connect before joining.{" "}
-                  <Link href="/settings#fitness" className="text-primary underline-offset-4 hover:underline">Connect now</Link>
-                </p>
+              {app && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="metric">What is measured</Label>
+                  <select id="metric" className={select} value={f.appMetric} onChange={(e) => chooseApp(e.target.value as AppMetricId)}>
+                    {(["GOOGLE_HEALTH", "GITHUB", "LICHESS", "GOALFI", "TELEGRAM"] as const).map((p) => (
+                      <optgroup key={p} label={`${PROVIDER_INFO[p].name}${apps[p]?.available ? "" : " (not set up on this server)"}`}>
+                        {(Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => APP_METRICS[id].provider === p).map((id) => (
+                          <option key={id} value={id} disabled={!metricAvailable(id)}>{APP_METRICS[id].label}: {APP_METRICS[id].description}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {metric.source !== "level" && !apps[metric.provider]?.connected && (
+                    <p className="text-xs text-muted-foreground">
+                      You haven’t connected {PROVIDER_INFO[metric.provider].name}. You can still create this challenge, but everyone (you included) must connect before joining.{" "}
+                      <Link href="/settings#accounts" className="text-primary underline-offset-4 hover:underline">Connect now</Link>
+                    </p>
+                  )}
+                  {metric.provider === "TELEGRAM" && <p className="text-xs text-muted-foreground">The community must be connected to its Telegram group (Telegram page) so the bot can count members.</p>}
+                </div>
               )}
-              {field("verification") ?? field("fitness")}
+              {field("verification") ?? field("app")}
             </fieldset>
             <div className="space-y-1.5"><Label htmlFor="rules">Rules</Label><Textarea id="rules" value={f.rules} onChange={(e) => set("rules", e.target.value)} placeholder="e.g. Only outdoor or treadmill runs count. One run per submission." />{field("rules") ?? hint("At least 10 characters.")}</div>
             <div className="space-y-1.5"><Label htmlFor="crit">Success criteria (shown to everyone)</Label><Textarea id="crit" value={f.successCriteria} onChange={(e) => set("successCriteria", e.target.value)} className="min-h-16" placeholder="e.g. Each participant logs at least 50 km of approved runs." />{field("successCriteria") ?? hint("At least 5 characters. This is what “YES” means for the market.")}</div>
             <fieldset className="space-y-3 rounded-lg border p-4">
               <legend className="px-1 text-sm font-medium">How success is measured</legend>
               <select className={select} value={f.ruleType} onChange={(e) => set("ruleType", e.target.value as RuleType)} aria-label="Measurement type">
-                <option value="individual_threshold">Each participant reaches an amount (e.g. 100 km)</option>
-                <option value="collective_total">Group total reaches a target (e.g. 1,500 km)</option>
-                <option value="daily_completion">Approved activity on N distinct days</option>
+                <option value="individual_threshold" disabled={app && !(allowedRules(metric) as string[]).includes("individual_threshold")}>{app && metric.source === "level" ? "The community reaches an amount" : "Each participant reaches an amount (e.g. 100 km)"}</option>
+                <option value="collective_total" disabled={app && !(allowedRules(metric) as string[]).includes("collective_total")}>Group total reaches a target (e.g. 1,500 km)</option>
+                <option value="daily_completion" disabled={app && !(allowedRules(metric) as string[]).includes("daily_completion")}>{app ? "Goal met on N distinct days" : "Approved activity on N distinct days"}</option>
                 <option value="milestone" disabled={app}>Milestone reached (approved proof){app ? ": needs human verifiers" : ""}</option>
               </select>
               <div className="grid gap-3 sm:grid-cols-3">
                 {(f.ruleType === "individual_threshold" || f.ruleType === "collective_total") && (
                   <div className="space-y-1.5"><Label htmlFor="unit">Unit</Label><Input id="unit" value={f.unit} disabled={app} onChange={(e) => set("unit", e.target.value)} maxLength={32} />{field("unit")}</div>
                 )}
-                {f.ruleType === "individual_threshold" && <div className="space-y-1.5"><Label htmlFor="thr">Amount per person</Label><Input id="thr" type="number" min={0} value={f.threshold} onChange={(e) => set("threshold", Number(e.target.value))} /></div>}
+                {f.ruleType === "individual_threshold" && <div className="space-y-1.5"><Label htmlFor="thr">{app && metric.source === "level" ? `${metric.label} to reach` : "Amount per person"}</Label><Input id="thr" type="number" min={0} value={f.threshold} onChange={(e) => set("threshold", Number(e.target.value))} /></div>}
                 {f.ruleType === "collective_total" && <div className="space-y-1.5"><Label htmlFor="tgt">Group target</Label><Input id="tgt" type="number" min={0} value={f.target} onChange={(e) => set("target", Number(e.target.value))} /></div>}
-                {f.ruleType === "daily_completion" && app && <div className="space-y-1.5"><Label htmlFor="dt">Steps that make a day count</Label><Input id="dt" type="number" min={100} step={500} value={f.dailyTarget} onChange={(e) => set("dailyTarget", Number(e.target.value))} /></div>}
+                {f.ruleType === "daily_completion" && app && (
+                  metric.better === "lower" ? (
+                    <div className="space-y-1.5"><Label htmlFor="dt">A day counts if you wake by</Label><Input id="dt" type="time" step={900} value={toTime(f.dailyTarget)} onChange={(e) => e.target.value && set("dailyTarget", fromTime(e.target.value))} /></div>
+                  ) : (
+                    <div className="space-y-1.5"><Label htmlFor="dt">{metric.unit[0]!.toUpperCase() + metric.unit.slice(1)} that make a day count</Label><Input id="dt" type="number" min={metric.daily.min} max={metric.daily.max} step={metric.daily.step} value={f.dailyTarget} onChange={(e) => set("dailyTarget", Number(e.target.value))} /></div>
+                  )
+                )}
                 {f.ruleType === "daily_completion" && <div className="space-y-1.5"><Label htmlFor="days">Required days</Label><Input id="days" type="number" min={1} value={f.requiredDays} onChange={(e) => set("requiredDays", Number(e.target.value))} /></div>}
-                {f.ruleType !== "collective_total" && (
+                {f.ruleType !== "collective_total" && !(app && metric.source === "level") && (
                   <div className="space-y-1.5"><Label htmlFor="minp">{f.ruleType === "milestone" ? "Completers needed" : "Participants who must succeed"}</Label><Input id="minp" type="number" min={1} value={f.minParticipants} onChange={(e) => set("minParticipants", Number(e.target.value))} /></div>
                 )}
               </div>
               {field("amount")}
-              <p className="text-xs text-muted-foreground">{app ? "The final outcome is computed from the synced daily step totals using this rule." : "The final outcome is computed from approved evidence using this rule."}</p>
+              <p className="text-xs text-muted-foreground">{app ? `The final outcome is computed from the synced ${metric.label.toLowerCase()} using this rule.` : "The final outcome is computed from approved evidence using this rule."}</p>
             </fieldset>
             {app ? (
-              <p className="rounded-md bg-muted px-3 py-2 text-sm"><b>Evidence:</b> {APP_EVIDENCE} Nobody uploads anything.</p>
+              <p className="rounded-md bg-muted px-3 py-2 text-sm"><b>Evidence:</b> {appEvidence(f.appMetric)} Nobody uploads anything.</p>
             ) : <div className="space-y-1.5"><Label htmlFor="ev">Evidence requirements</Label><Textarea id="ev" value={f.evidenceReq} onChange={(e) => set("evidenceReq", e.target.value)} className="min-h-16" placeholder="e.g. Screenshot from Strava showing date and distance." />{field("evidenceReq") ?? hint("At least 5 characters.")}</div>}
             <div className="space-y-1.5"><Label htmlFor="part">Participation requirements <span className="text-muted-foreground">(optional)</span></Label><Input id="part" value={f.participationReq} onChange={(e) => set("participationReq", e.target.value)} /></div>
           </div>
@@ -440,7 +495,7 @@ export function ChallengeBuilder({
             )}
             {app ? (
               <>
-                <p className="rounded-md bg-muted px-3 py-2 text-sm">No verifiers needed: steps sync from Google Health and count automatically. Participants can still dispute a synced total within the dispute window.</p>
+                <p className="rounded-md bg-muted px-3 py-2 text-sm">{`No verifiers needed: ${metric.label.toLowerCase()} ${metric.source === "level" ? "is counted by GoalFi" : `syncs from ${PROVIDER_INFO[metric.provider].name}`} and counts automatically. Participants can still dispute a synced value within the dispute window.`}</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5"><Label htmlFor="disp">Dispute window (hours)</Label><Input id="disp" type="number" min={1} max={336} value={f.disputeWindowHours} onChange={(e) => set("disputeWindowHours", Number(e.target.value))} /></div>
                   <div className="space-y-1.5"><Label htmlFor="max">Max participants</Label><Input id="max" type="number" min={1} value={f.maxParticipants} onChange={(e) => set("maxParticipants", e.target.value)} placeholder="No limit" /></div>
@@ -479,7 +534,7 @@ export function ChallengeBuilder({
                 <span>
                   <b>Settle automatically</b>
                   <span className="block text-xs text-muted-foreground">{app
-                    ? "GoalFi waits 2 hours after the end for late step uploads, then for the dispute window, and settles the result from the synced steps, including the on-chain market, without an admin click."
+                    ? "GoalFi waits 2 hours after the end for late uploads, then for the dispute window, and settles the result from the synced data, including the on-chain market, without an admin click."
                     : "Once everything is reviewed, no disputes are open and the dispute window has passed, GoalFi settles the result computed from approved evidence, including the on-chain market, without an admin click."}</span>
                 </span>
               </label>
@@ -533,8 +588,8 @@ export function ChallengeBuilder({
               <dt className="text-muted-foreground">Title</dt><dd>{f.title || "—"}</dd>
               <dt className="text-muted-foreground">When</dt><dd>{new Date(f.startDate).toLocaleString()} → {new Date(f.endDate).toLocaleString()}</dd>
               <dt className="text-muted-foreground">Success</dt><dd>{f.successCriteria || "—"}</dd>
-              <dt className="text-muted-foreground">Verification</dt><dd>{app ? `Automatic: daily steps from Google Health${f.ruleType === "daily_completion" ? ` (a day counts at ${f.dailyTarget.toLocaleString()}+ steps)` : ""}` : `${f.requiredApprovals} of ${verifierCount} verifiers`} · {f.disputeWindowHours}h disputes</dd>
-              <dt className="text-muted-foreground">Settlement</dt><dd>{f.autoSettle ? "Automatic" : "Admin confirms"}{app ? " · after late steps sync (2h after the end)" : f.hasReviewDeadline ? ` · review deadline ${f.reviewDeadlineHours}h after the end (unreviewed = rejected)` : " · no review deadline"}</dd>
+              <dt className="text-muted-foreground">Verification</dt><dd>{app ? `Automatic: ${metric.label.toLowerCase()} from ${PROVIDER_INFO[metric.provider].name}${f.ruleType === "daily_completion" ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, f.dailyTarget)})` : ""}` : `${f.requiredApprovals} of ${verifierCount} verifiers`} · {f.disputeWindowHours}h disputes</dd>
+              <dt className="text-muted-foreground">Settlement</dt><dd>{f.autoSettle ? "Automatic" : "Admin confirms"}{app ? " · after late data syncs (2h after the end)" : f.hasReviewDeadline ? ` · review deadline ${f.reviewDeadlineHours}h after the end (unreviewed = rejected)` : " · no review deadline"}</dd>
               <dt className="text-muted-foreground">Market</dt><dd>{f.marketType === "NONE" ? "None" : `YES/NO opening at ${f.initialPricePct}% with ${f.initialLiquidityUsdc} ${collateralSymbol}`}</dd>
             </dl>
             {error && (

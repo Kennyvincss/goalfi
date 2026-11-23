@@ -58,8 +58,9 @@ model User {
   reports             Report[]                 @relation("ReportReporter")
   reportsReviewed     Report[]                 @relation("ReportReviewer")
   marketsResolved     Market[]                 @relation("MarketResolver")
-  fitnessConnections  FitnessConnection[]
-  fitnessDaily        FitnessDaily[]
+  connectedAccounts   ConnectedAccount[]
+  activityDaily       ActivityDaily[]
+  activityEvents      ActivityEvent[]
   invitesCreated      CommunityInvite[]
   categoriesCreated   Category[]
 
@@ -268,12 +269,12 @@ model Challenge {
   reviewDeadlineHours Int?
   /// Settle (resolve on-chain) automatically once nothing blocks resolution, using the computed outcome.
   autoSettle         Boolean             @default(false)
-  /// MANUAL = human verifiers review evidence; CONNECTED_APP = evidence comes from participants' fitness accounts.
+  /// MANUAL = human verifiers review evidence; CONNECTED_APP = evidence comes from participants' connected accounts.
   verificationMethod VerificationMethod  @default(MANUAL)
-  /// For CONNECTED_APP challenges: which metric is synced (currently "steps").
-  fitnessMetric      String?
-  /// For daily-completion rules: the amount that makes a day count (e.g. 10000 steps).
-  fitnessDailyTarget Int?
+  /// CONNECTED_APP: which metric is measured (see APP_METRICS in @goalfi/core), e.g. "steps", "github_contributions".
+  appMetric          String?
+  /// CONNECTED_APP + daily_completion: the value that makes a day count (for "lower is better" metrics, the maximum).
+  appDailyTarget     Float?
   maxParticipants    Int?
   startDate          DateTime            @map("start_date")
   endDate            DateTime            @map("end_date")
@@ -776,18 +777,23 @@ model PlatformSetting {
   @@map("platform_settings")
 }
 
-// ───────────────────────────── Connected fitness accounts ─────────────────────────────
+// ───────────────────────────── Connected accounts ─────────────────────────────
 
-enum FitnessProvider {
+enum AccountProvider {
   GOOGLE_HEALTH
+  GITHUB
+  LICHESS
 }
 
-/// A user's link to a fitness data provider. Tokens are encrypted (AES-256-GCM, FITNESS_TOKEN_KEY).
-model FitnessConnection {
+/// A user's link to a data provider. Tokens are encrypted (AES-256-GCM, ACCOUNT_TOKEN_KEY).
+model ConnectedAccount {
   id              String          @id @default(cuid())
   userId          String
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider        FitnessProvider
+  provider        AccountProvider
+  /// The provider's id / username for this account (e.g. GitHub login, Lichess username).
+  externalId      String?
+  externalName    String?
   accessTokenEnc  String
   refreshTokenEnc String?
   expiresAt       DateTime
@@ -799,23 +805,40 @@ model FitnessConnection {
   updatedAt       DateTime        @updatedAt
 
   @@unique([userId, provider])
-  @@map("fitness_connections")
+  @@map("connected_accounts")
 }
 
-/// Daily totals synced from a provider (one row per user/day/metric). Latest sync wins.
-model FitnessDaily {
+/// Daily totals for metrics a provider reports per local calendar day (one row per user/day/metric).
+model ActivityDaily {
   id        String          @id @default(cuid())
   userId    String
   user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider  FitnessProvider
+  provider  AccountProvider
   date      DateTime        @db.Date
-  metric    String // "steps"
+  metric    String
   value     Float
   fetchedAt DateTime        @default(now())
 
   @@unique([userId, provider, date, metric])
   @@index([userId, metric, date])
-  @@map("fitness_daily")
+  @@map("activity_daily")
+}
+
+/// Individual timestamped activities (e.g. a chess game) for metrics counted per challenge day.
+model ActivityEvent {
+  id         String          @id @default(cuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   AccountProvider
+  metric     String
+  externalId String
+  occurredAt DateTime
+  value      Float           @default(1)
+  fetchedAt  DateTime        @default(now())
+
+  @@unique([userId, provider, metric, externalId])
+  @@index([userId, metric, occurredAt])
+  @@map("activity_events")
 }
 
 /// Messages to Telegram chats (community announcements). Delivered by the bot worker.

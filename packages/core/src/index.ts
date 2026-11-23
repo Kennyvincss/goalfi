@@ -9,4 +9,5 @@ export * from "./challenge-input";
 export * from "./money";
 export * from "./lifecycle";
 export * from "./trading";
-export * from "./fitness-suggestions";
+export * from "./app-metrics";
+export * from "./app-suggestions";

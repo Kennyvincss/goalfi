@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { SuccessRuleSchema } from "./success-rule";
-
-/** Metrics that connected fitness accounts can verify (Google Health daily rollups). */
-export const FITNESS_METRICS = ["steps"] as const;
-export type FitnessMetric = (typeof FITNESS_METRICS)[number];
+import { allowedRules, APP_METRIC_IDS, APP_METRICS, describeDailyTarget } from "./app-metrics";
 
 /** Review deadline bounds (hours after the end date). The minimum matches the 24h evidence grace period. */
 export const REVIEW_DEADLINE_MIN_HOURS = 24;
@@ -107,10 +104,10 @@ export const CreateChallengeSchema = z
     autoSettle: z.boolean().default(false),
     maxParticipants: z.number().int().min(1).max(100_000).optional(),
     verifierUsernames: z.array(z.string().min(1)).max(50),
-    /** MANUAL: human verifiers. CONNECTED_APP: progress is synced from participants' fitness accounts. */
+    /** MANUAL: human verifiers. CONNECTED_APP: progress is synced from connected accounts (see APP_METRICS). */
     verification: z.enum(["MANUAL", "CONNECTED_APP"]).default("MANUAL"),
-    /** Required for CONNECTED_APP. dailyTarget: what makes a day count for daily-completion rules. */
-    fitness: z.object({ metric: z.enum(FITNESS_METRICS), dailyTarget: z.number().int().min(100).max(200_000).optional() }).optional(),
+    /** Required for CONNECTED_APP. dailyTarget: what makes a day count for "N days" rules. */
+    app: z.object({ metric: z.enum(APP_METRIC_IDS), dailyTarget: z.number().positive().optional() }).optional(),
     adminUsernames: z.array(z.string().min(1)).max(20),
     /** Short market question shown on the market (stored on-chain as the market name, ≤ 64 bytes). */
     marketQuestion: z.string().trim().min(4).max(200),
@@ -120,13 +117,30 @@ export const CreateChallengeSchema = z
     if (c.endDate <= c.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after start date" });
     const app = c.verification === "CONNECTED_APP";
     if (app) {
-      if (!c.fitness) ctx.addIssue({ code: "custom", path: ["fitness"], message: "Choose what the fitness app measures" });
+      const metric = c.app ? APP_METRICS[c.app.metric] : null;
+      if (!metric) ctx.addIssue({ code: "custom", path: ["app"], message: "Choose what is measured" });
       const r = c.successRule;
       if (r.type === "milestone") ctx.addIssue({ code: "custom", path: ["successRule"], message: "App-verified challenges need a measurable goal (an amount, a group total, or days)" });
-      if ((r.type === "individual_threshold" || r.type === "collective_total") && c.fitness && r.unit !== c.fitness.metric)
-        ctx.addIssue({ code: "custom", path: ["successRule"], message: `The goal must be measured in ${c.fitness.metric}` });
-      if (r.type === "daily_completion" && !c.fitness?.dailyTarget)
-        ctx.addIssue({ code: "custom", path: ["fitness"], message: "Set how many steps make a day count" });
+      else if (metric) {
+        if (!allowedRules(metric).includes(r.type))
+          ctx.addIssue({
+            code: "custom", path: ["successRule"],
+            message: metric.source === "level" ? `${metric.label} is measured for the whole community: use “reaches an amount” with 1 participant` : `${metric.label} only works with “on N days” goals`,
+          });
+        if ((r.type === "individual_threshold" || r.type === "collective_total") && r.unit !== metric.unit)
+          ctx.addIssue({ code: "custom", path: ["successRule"], message: `The goal must be measured in ${metric.unit}` });
+        if (metric.source === "level") {
+          if (!c.communityId) ctx.addIssue({ code: "custom", path: ["communityId"], message: `${metric.label} challenges belong to a community` });
+          if (r.type === "individual_threshold" && r.minParticipants !== 1)
+            ctx.addIssue({ code: "custom", path: ["successRule"], message: "Community size is one number: set participants who must succeed to 1" });
+        }
+        if (r.type === "daily_completion") {
+          const t = c.app?.dailyTarget;
+          if (t === undefined) ctx.addIssue({ code: "custom", path: ["app"], message: `Set what makes a day count (${metric.unit})` });
+          else if (t < metric.daily.min || t > metric.daily.max)
+            ctx.addIssue({ code: "custom", path: ["app"], message: `A day must count between ${describeDailyTarget(metric, metric.daily.min)} and ${describeDailyTarget(metric, metric.daily.max)}` });
+        }
+      }
     }
     // App-verified evidence is approved as it syncs, so nothing can be left unreviewed: no deadline needed.
     if (c.autoSettle && c.reviewDeadlineHours === undefined && !app)

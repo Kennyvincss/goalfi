@@ -2,7 +2,7 @@ import "dotenv/config";
 import http from "node:http";
 import { webhookCallback } from "grammy";
 import { prisma } from "@goalfi/db";
-import { chainTick, fitnessTick, googleHealthConfigFromEnv, lifecycleTick, resolveAppUrl, storageFromEnv, type ServiceContext } from "@goalfi/services";
+import { accountsConfigFromEnv, accountsTick, chainTick, lifecycleTick, resolveAppUrl, storageFromEnv, type ServiceContext } from "@goalfi/services";
 import { createChainGateway } from "@goalfi/services/chain-gateway";
 import { ALLOWED_UPDATES, BOT_COMMANDS, createBot, deliverNotifications, deliverOutbox } from "./lib";
 
@@ -35,8 +35,8 @@ async function main() {
       try { await fn(); } catch (e) { console.error(`[${name}]`, e); } finally { running = false; }
     }, ms);
   };
-  const fitnessCfg = googleHealthConfigFromEnv(svc.appUrl, process.env);
-  if (fitnessCfg) loop("fitness", 60_000, () => fitnessTick(svc, fitnessCfg));
+  const accountsCfg = accountsConfigFromEnv(svc.appUrl, process.env);
+  loop("accounts", 60_000, () => accountsTick(svc, accountsCfg));
   loop("lifecycle", 60_000, () => lifecycleTick(svc));
   loop("chain", 60_000, () => chainTick(svc));
   loop("notify", 10_000, () => deliverNotifications(bot.api, svc));

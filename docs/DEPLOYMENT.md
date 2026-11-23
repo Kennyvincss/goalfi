@@ -233,28 +233,46 @@ UPDATE users SET role = 'PLATFORM_ADMIN' WHERE username = 'your_username';
 
 ---
 
-## 10. Optional: connected fitness (Google Health steps)
+## 10. Optional: connected accounts (challenges that verify themselves)
 
-Lets people connect Fitbit / Pixel Watch accounts so step challenges verify and settle themselves.
-GoalFi reads **daily step totals only**, read-only. (The old Fitbit Web API was replaced by the
-Google Health API; Apple Health has no web API, and Strava's terms don't allow showing one user's
-data to others, so neither is supported.)
+Participants connect an account, GoalFi syncs their activity, and challenges built on it need no
+verifiers and settle automatically. What can be verified (see `docs/CONNECTED_ACCOUNTS.md`):
 
+| Source | Metrics | Setup |
+|---|---|---|
+| **Lichess** | chess games played, puzzles solved | none beyond `ACCOUNT_TOKEN_KEY` |
+| **GoalFi** | community members | none |
+| **Telegram** | members of the community's linked group | the bot (already set up) |
+| **Google Health** (Fitbit, Pixel Watch) | steps, distance, floors, heart-zone minutes, workouts, wake-up time | Google Cloud OAuth client |
+| **GitHub** | daily contributions | GitHub OAuth app |
+
+**a. The key (required for any account).** In Vercel add `ACCOUNT_TOKEN_KEY` = 32+ random letters
+and numbers (e.g. from a password generator), then Redeploy. Lichess is now on.
+
+**b. Google Health.**
 1. In [Google Cloud Console](https://console.cloud.google.com) create a project, then
    **APIs & Services → Library → Google Health API → Enable**.
-2. **OAuth consent screen**: External, app name GoalFi, your email. Add the scope
-   `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly`.
-   Leave it in **Testing** and add each tester's Google address under *Test users* (up to 100).
-   Opening it to everyone requires Google's app verification.
+2. **OAuth consent screen**: External, app name GoalFi, your email. Add the scopes
+   `https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly` and
+   `https://www.googleapis.com/auth/googlehealth.sleep.readonly`. Leave it in **Testing** and add each
+   tester's Google address under *Test users* (up to 100). Opening it to everyone requires Google's
+   app verification.
 3. **Credentials → Create credentials → OAuth client ID → Web application**. Authorized redirect URI:
-   `https://<your-site>/api/fitness/google/callback` (Admin → System status shows the exact value).
-4. In Vercel add `GOOGLE_HEALTH_CLIENT_ID`, `GOOGLE_HEALTH_CLIENT_SECRET` and `FITNESS_TOKEN_KEY`
-   (32+ random characters), then Redeploy. System status → *Fitness accounts* should be green.
+   `https://<your-site>/api/accounts/google/callback`.
+4. In Vercel add `GOOGLE_HEALTH_CLIENT_ID` and `GOOGLE_HEALTH_CLIENT_SECRET`, then Redeploy.
 
-How it works: the scheduler syncs each participant's steps every ~10 minutes while a challenge
-runs and for 2 hours after it ends (watches upload late). Each day's total becomes approved
-evidence; a changed total adds a new row that supersedes the old one. Settlement waits for the
-2-hour grace period and the dispute window, then resolves the market with the computed outcome.
+**c. GitHub.**
+1. GitHub → **Settings → Developer settings → OAuth Apps → New OAuth App**. Homepage URL: your site.
+   Authorization callback URL: `https://<your-site>/api/accounts/github/callback`.
+2. Copy the **Client ID**, click **Generate a new client secret**, and add both to Vercel as
+   `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Redeploy.
+
+Admin → System status shows each source as on/off with the exact redirect address.
+
+How it works: the scheduler syncs each participant every ~10 minutes while a challenge runs and for
+2 hours after it ends (devices upload late). Each day's value becomes approved evidence; a changed
+value adds a new row that supersedes the old one. Settlement waits for the grace period and the
+dispute window, then resolves the market with the computed outcome.
 
 ---
 
@@ -280,9 +298,9 @@ evidence; a changed total adds a new row that supersedes the old one. Settlement
 | `TELEGRAM_WEBHOOK_SECRET` | free mode | webhook mode | 16+ letters/numbers |
 | `CRON_SECRET` (again) | free mode | | required in free mode; the scheduler sends it |
 | `TELEGRAM_WEBHOOK_URL` / `PORT` | | optional | standalone bot webhook mode only |
-| `GOOGLE_HEALTH_CLIENT_ID` | optional | optional | Google OAuth client ID (step 10) |
-| `GOOGLE_HEALTH_CLIENT_SECRET` | optional | optional | **secret** (step 10) |
-| `FITNESS_TOKEN_KEY` | optional | optional | 32+ random characters, encrypts Google tokens (**secret**). Changing it disconnects everyone |
+| `ACCOUNT_TOKEN_KEY` | optional | optional | 32+ random characters, encrypts connected-account tokens (**secret**). Turns on Lichess. Changing it disconnects everyone |
+| `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET` | optional | optional | Google OAuth client (step 10b; secret is **secret**) |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | optional | optional | GitHub OAuth app (step 10c; secret is **secret**) |
 | `GOALFI_ENABLE_MAINNET` | | | **leave unset**. See below |
 
 ---

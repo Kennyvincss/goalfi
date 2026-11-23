@@ -6,7 +6,7 @@ import { conflict, forbidden, invalid, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { applyAwards } from "./reputation";
 import { audit } from "./audit";
-import { SYNC_GRACE_HOURS } from "./fitness/service";
+import { SYNC_GRACE_HOURS } from "./accounts/service";
 
 /** Gather DB state for the core resolution gate (actor-independent). */
 async function gatherResolutionInput(ctx: ServiceContext, challengeId: string) {

@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-/** AES-256-GCM for OAuth tokens at rest. Any FITNESS_TOKEN_KEY string works (hashed to 32 bytes). */
+/** AES-256-GCM for OAuth tokens at rest. Any ACCOUNT_TOKEN_KEY string works (hashed to 32 bytes). */
 function key(secret: string): Buffer {
-  if (!secret || secret.trim().length < 32) throw new Error("FITNESS_TOKEN_KEY must be set (32+ characters)");
+  if (!secret || secret.trim().length < 32) throw new Error("ACCOUNT_TOKEN_KEY must be set (32+ characters)");
   return createHash("sha256").update(secret.trim()).digest();
 }
 

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { CHALLENGE_TEMPLATES, suggestStepChallenges } from "@goalfi/core";
-import { getFitnessConnection, recentDailySteps } from "@goalfi/services";
-import { fitnessConfig } from "@/lib/server/fitness";
+import { ACCOUNT_PROVIDERS, APP_METRICS, CHALLENGE_TEMPLATES, suggestChallenges, type AppMetricId } from "@goalfi/core";
+import { listAccounts, recentDaily, telegramMemberCount } from "@goalfi/services";
+import { accountsConfig } from "@/lib/server/accounts";
 import { prisma } from "@goalfi/db";
 import { getCurrentUser } from "@/lib/server/auth";
 import { services } from "@/lib/server/services";
@@ -17,18 +17,29 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
     prisma.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } }),
     prisma.community.findMany({
       where: { members: { some: { userId: user.id, role: { in: ["OWNER", "ADMIN"] } } } },
-      select: { id: true, name: true, _count: { select: { members: true } } },
+      select: { id: true, name: true, telegramChatId: true, _count: { select: { members: true } } },
     }),
   ]);
   const ctx = services();
-  const conn = await getFitnessConnection(ctx, user.id);
+  const cfg = accountsConfig();
+  const accounts = await listAccounts(ctx, user.id);
+  const apps: Record<string, { available: boolean; connected: boolean }> = {
+    GOALFI: { available: true, connected: true },
+    TELEGRAM: { available: !!cfg?.telegram, connected: true },
+  };
+  for (const p of ACCOUNT_PROVIDERS) apps[p] = { available: !!cfg?.providers[p], connected: accounts.some((a) => a.provider === p && a.status === "ACTIVE") };
   const { suggest, community } = await searchParams;
   let suggestion = null;
-  if (suggest) {
+  const [metricId] = (suggest ?? "").split(":") as [AppMetricId];
+  if (suggest && metricId in APP_METRICS) {
     const today = new Date().toISOString().slice(0, 10);
-    const history = (await recentDailySteps(ctx, user.id, 14)).filter((d) => d.date !== today).map((d) => d.value);
+    const history = (await recentDaily(ctx, user.id, metricId, 14)).filter((d) => d.date !== today).map((d) => d.value);
     const c = communities.find((x) => x.id === community);
-    const s = suggestStepChallenges(history, c ? { name: c.name, memberCount: c._count.members } : undefined).find((x) => x.id === suggest);
+    const level = !c ? undefined
+      : metricId === "community_members" ? c._count.members
+      : metricId === "telegram_members" && c.telegramChatId && cfg?.telegram ? ((await telegramMemberCount(cfg.telegram.botToken, c.telegramChatId, fetch, cfg.telegram.apiRoot)) ?? undefined)
+      : undefined;
+    const s = suggestChallenges(metricId, history, c ? { name: c.name, memberCount: c._count.members, currentLevel: level } : undefined).find((x) => x.id === suggest);
     if (s) suggestion = { ...s, communityId: s.scope === "group" ? c?.id : undefined };
   }
   const gw = ctx.gateway;
@@ -41,7 +52,7 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
           templates={CHALLENGE_TEMPLATES}
           categories={categories}
           communities={communities.map((c) => ({ id: c.id, name: c.name }))}
-          fitness={{ available: !!fitnessConfig(), connected: conn?.status === "ACTIVE" }}
+          apps={apps}
           suggestion={suggestion}
           collateralSymbol={gw?.collateralSymbol ?? "USDC"}
           marketsAvailable={!!gw}

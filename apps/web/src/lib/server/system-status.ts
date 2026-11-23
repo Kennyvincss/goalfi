@@ -139,17 +139,27 @@ export async function systemStatus(): Promise<Check[]> {
     }
   }
 
-  // ── Fitness (Google Health) ──
+  // ── Connected accounts ──
   {
-    const set = ["GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "FITNESS_TOKEN_KEY"].filter((k) => env[k]?.trim());
-    const redirect = `${app.url.replace(/\/$/, "")}/api/fitness/google/callback`;
-    if (set.length === 0)
-      checks.push({ area: "Fitness accounts", status: "info", detail: "Google Health isn't set up, so app-verified step challenges are off (optional)", fix: `To turn it on, follow “Connected fitness” in docs/DEPLOYMENT.md. The redirect URI to register with Google is ${redirect}` });
-    else if (set.length < 3)
-      checks.push({ area: "Fitness accounts", status: "error", detail: `Missing ${["GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "FITNESS_TOKEN_KEY"].filter((k) => !set.includes(k)).join(", ")}`, fix: "Add the missing variable(s), then Redeploy." });
-    else if ((env.FITNESS_TOKEN_KEY ?? "").trim().length < 32)
-      checks.push({ area: "Fitness accounts", status: "error", detail: "FITNESS_TOKEN_KEY is too short", fix: "Use a random value of at least 32 characters (it encrypts Google tokens). Changing it later disconnects everyone." });
-    else checks.push({ area: "Fitness accounts", status: "ok", detail: `Google Health enabled. Redirect URI: ${redirect}` });
+    const base = app.url.replace(/\/$/, "");
+    const key = (env.ACCOUNT_TOKEN_KEY ?? "").trim();
+    if (!key)
+      checks.push({ area: "Connected accounts", status: "info", detail: "Off: ACCOUNT_TOKEN_KEY isn't set, so Google Health, GitHub and Lichess can't be connected (optional). Community member challenges still work.", fix: "Add ACCOUNT_TOKEN_KEY (32+ random letters and numbers), then Redeploy. That alone turns on Lichess. See docs/DEPLOYMENT.md step 10." });
+    else if (key.length < 32)
+      checks.push({ area: "Connected accounts", status: "error", detail: "ACCOUNT_TOKEN_KEY is too short", fix: "Use at least 32 random characters. Changing it later disconnects everyone." });
+    else {
+      checks.push({ area: "Lichess", status: "ok", detail: `On (no setup needed). Sign-in returns to ${base}/api/accounts/lichess/callback` });
+      const pair = (area: string, id: string, secret: string, path: string, how: string) => {
+        const have = [id, secret].filter((k) => env[k]?.trim());
+        checks.push(
+          have.length === 2 ? { area, status: "ok", detail: `On. Redirect URI: ${base}${path}` }
+          : have.length === 1 ? { area, status: "error", detail: `Missing ${[id, secret].find((k) => !env[k]?.trim())}`, fix: "Add the missing variable, then Redeploy." }
+          : { area, status: "info", detail: `Off (optional). ${how}`, fix: `Register the redirect URI ${base}${path}, then add ${id} and ${secret}.` },
+        );
+      };
+      pair("Google Health", "GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "/api/accounts/google/callback", "Needs a Google Cloud OAuth client (step 10).");
+      pair("GitHub", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "/api/accounts/github/callback", "Needs a GitHub OAuth app (step 10).");
+    }
   }
 
   // ── Scheduler ──
