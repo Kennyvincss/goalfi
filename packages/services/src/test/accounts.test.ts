@@ -7,6 +7,8 @@ import {
   confirmChallenge,
   connectAccount,
   countWorkouts,
+  isRun,
+  runningKm,
   createChallenge,
   disconnectAccount,
   joinChallenge,
@@ -49,7 +51,7 @@ function fakeProviders() {
     steps: {} as Record<string, Record<string, number>>,
     /** Steps typed in by hand in the Fitbit app: only returned when not asking for wearables-only data. */
     manualSteps: {} as Record<string, Record<string, number>>,
-    workouts: {} as Record<string, { date: string; secs: number }[]>,
+    workouts: {} as Record<string, { date: string; secs: number; type?: string; km?: number }[]>,
     sleeps: {} as Record<string, { end: string; h: number; m: number; main: boolean; nap?: boolean; edited?: boolean }[]>,
     contributions: {} as Record<string, Record<string, number>>,
     games: {} as Record<string, { id: string; at: number; status: string; plies?: number; vs?: string }[]>,
@@ -99,7 +101,10 @@ function fakeProviders() {
         return reply(200, { rollupDataPoints: rows.map(([date, v]) => ({ civilStartTime: civil(date), civilEndTime: civil(date, 23, 59), ...value(v) })) });
       }
       if (path.endsWith("/exercise/dataPoints"))
-        return reply(200, { dataPoints: (data.workouts[who] ?? []).map((w) => ({ exercise: { exerciseType: "WEIGHTLIFTING", activeDuration: `${w.secs}s`, interval: { civilStartTime: civil(w.date, 18) } } })) });
+        return reply(200, { dataPoints: (data.workouts[who] ?? []).map((w) => ({ exercise: {
+          exerciseType: w.type ?? "WEIGHTLIFTING", activeDuration: `${w.secs}s`, interval: { civilStartTime: civil(w.date, 18) },
+          ...(w.km !== undefined ? { metricsSummary: { distanceMillimeters: w.km * 1_000_000 } } : {}),
+        } })) });
       if (path.endsWith("/sleep/dataPoints")) {
         const filter = u.searchParams.get("filter") ?? "";
         const [, from, to] = /civil_end_time >= "([\d-]+)" AND sleep\.interval\.civil_end_time < "([\d-]+)"/.exec(filter) ?? [];
@@ -191,6 +196,12 @@ describe("provider response parsing", () => {
       { sleep: { metadata: { nap: true }, interval: { civilEndTime: civil("2026-11-03", 15, 0) } } },
     ]);
     expect([...s]).toEqual([["2026-11-03", 400]]);
+  });
+  it("counts only runs for running distance", () => {
+    const ex = (type: string, km: number, date = "2026-11-03", displayName?: string) => ({ exercise: { exerciseType: type, displayName, interval: { civilStartTime: civil(date, 7) }, metricsSummary: { distanceMillimeters: km * 1_000_000 } } });
+    const r = runningKm([ex("RUNNING", 3.2), ex("TREADMILL_RUNNING", 1.5), ex("WALKING", 4), ex("BIKING", 20), ex("OTHER", 2, "2026-11-04", "Morning jog"), ex("OTHER", 2, "2026-11-04", "Yoga")]);
+    expect([...r]).toEqual([["2026-11-03", 4.7], ["2026-11-04", 2]]);
+    expect(isRun({ exerciseType: "HIKING" })).toBe(false);
   });
   it("reads GitHub's contribution calendar", () => {
     const r = parseContributionCalendar({ data: { viewer: { login: "octo", contributionsCollection: { contributionCalendar: { weeks: [{ contributionDays: [{ date: "2026-11-03", contributionCount: 4 }, { date: "bad", contributionCount: 1 }] }] } } } } });
@@ -343,6 +354,32 @@ describe("connected accounts", () => {
     await autoSettleTick(ctx);
     expect(await outcome(wake.id)).toBe("YES");
     expect(await outcome(gym.id)).toBe("YES"); // 1 + 1 + 1 (the 2-minute one doesn't count)
+  });
+
+  it("Google: running distance counts runs only", async () => {
+    const start = new Date(`${iso(clock.now)}T00:00:00Z`);
+    const d1 = iso(start);
+    const c = await launch({
+      title: "One of us runs 5 km today", marketQuestion: "Will one of us run 5 km?", startDate: start, endDate: new Date(start.getTime() + DAY),
+      successRule: { type: "individual_threshold", unit: "km", threshold: 5, minParticipants: 1 }, app: { metric: "running_km" },
+    });
+    await joinChallenge(ctx, p1, c.id);
+    await joinChallenge(ctx, p2, c.id);
+    P.data.steps[p1.username] = { [d1]: 12_000 };
+    P.data.steps[p2.username] = { [d1]: 9_000 };
+    // p1 walks 6 km and rides 20 km: no running. p2 runs twice (3 + 2.5 km).
+    P.data.workouts[p1.username] = [{ date: d1, secs: 3600, type: "WALKING", km: 6 }, { date: d1, secs: 3600, type: "BIKING", km: 20 }];
+    P.data.workouts[p2.username] = [{ date: d1, secs: 1200, type: "RUNNING", km: 3 }, { date: d1, secs: 900, type: "RUNNING", km: 2.5 }];
+    clock.now = new Date(start.getTime() + DAY + HOUR);
+    await accountsTick(ctx, cfg, P.f);
+    const ev = await prisma.evidence.findMany({ where: { challengeId: c.id } });
+    expect(ev.map((e) => [e.userId, Number(e.progressValue)])).toEqual([[p2.id, 5.5]]);
+    expect(ev[0]!.description).toMatch(/5\.5 km on .* \(synced from Google Health\)/);
+    expect(await recentDaily(ctx, p1.id, "running_km")).toContainEqual({ date: d1, value: 0 }); // a real zero, not missing
+    advance(3 * HOUR);
+    await lifecycleTick(ctx);
+    await autoSettleTick(ctx);
+    expect(await outcome(c.id)).toBe("YES");
   });
 
   it("GitHub: contributions per day; one GitHub account can't back two users", async () => {

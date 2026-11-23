@@ -19,7 +19,7 @@ export * from "./settlement";
 export * from "./accounts/service";
 export * from "./accounts/config";
 export * from "./accounts/http";
-export { parseDailyRollup, countWorkouts, wakeTimes, GOOGLE_HEALTH_SCOPES, GOOGLE_SLEEP_SCOPE } from "./accounts/google-health";
+export { parseDailyRollup, countWorkouts, runningKm, isRun, wakeTimes, GOOGLE_HEALTH_SCOPES, GOOGLE_SLEEP_SCOPE } from "./accounts/google-health";
 export { parseContributionCalendar } from "./accounts/github";
 export { LICHESS_SCOPE } from "./accounts/lichess";
 export { telegramMemberCount } from "./accounts/telegram-count";

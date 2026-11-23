@@ -18,7 +18,7 @@ export interface AppSuggestion {
 }
 
 const VERB: Partial<Record<AppMetricId, string>> = {
-  steps: "Walk", distance_km: "Cover", floors: "Climb", heart_zone_minutes: "Get", workouts: "Do",
+  steps: "Walk", distance_km: "Cover", running_km: "Run", floors: "Climb", heart_zone_minutes: "Get", workouts: "Do",
   github_contributions: "Make", lichess_games: "Play", lichess_puzzles: "Solve",
 };
 const roundUp = (n: number, step: number) => Math.round(Math.ceil(n / step - 1e-9) * step * 100) / 100;
