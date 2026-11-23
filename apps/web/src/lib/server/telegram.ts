@@ -56,8 +56,13 @@ export function telegramConfigProblems(): string[] {
 /** Runs on every scheduler tick: make sure Telegram points at us, then deliver queued messages. */
 export async function telegramTick() {
   const cfg = config();
-  if (cfg.problems.length) return { ok: false, problems: cfg.problems };
+  if (!cfg.token) return { ok: false, problems: cfg.problems };
   const api = getBot().api;
+  const ctx = services();
+  // Sending only needs the bot token, so queued messages go out even if the webhook setup has a problem.
+  const notifications = await deliverNotifications(api, ctx);
+  const outbox = await deliverOutbox(api, ctx);
+  if (cfg.problems.length) return { ok: false, problems: cfg.problems, notifications, outbox };
   const info = await api.getWebhookInfo();
   // Re-register if the URL differs, or Telegram reports our endpoint rejecting it (e.g. secret changed).
   const rejected = /401|403|404/.test(info.last_error_message ?? "") && (info.last_error_date ?? 0) * 1000 > Date.now() - 10 * 60_000;
@@ -67,8 +72,5 @@ export async function telegramTick() {
     await api.setMyCommands(BOT_COMMANDS);
     webhook = "registered";
   }
-  const ctx = services();
-  const notifications = await deliverNotifications(api, ctx);
-  const outbox = await deliverOutbox(api, ctx);
   return { ok: true, webhook, pendingUpdates: info.pending_update_count, notifications, outbox };
 }

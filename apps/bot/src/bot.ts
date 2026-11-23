@@ -13,6 +13,7 @@ import {
   type ServiceContext,
 } from "@goalfi/services";
 import { esc, priceLine, timeLeft } from "./format";
+import { deliverOutbox } from "./dispatch";
 
 const HELP = [
   "<b>GoalFi</b> turns real-life goals into community challenges and prediction markets.",
@@ -66,6 +67,8 @@ export function createBot(token: string, svc: ServiceContext, opts: { botInfo?: 
           parse_mode: "HTML",
           reply_markup: new InlineKeyboard().url("Open community", url(`/communities/${community.slug}`)),
         });
+        // Post this community's current challenges right away (queued by linkTelegramGroup).
+        await deliverOutbox(ctx.api, svc).catch((e) => console.error("[bot] outbox after link failed", e));
       } catch (e) {
         await ctx.reply(`⚠️ ${esc(errText(e))}`, { parse_mode: "HTML", reply_markup: linkHint() });
       }

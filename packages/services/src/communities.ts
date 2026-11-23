@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { Actor, ServiceContext } from "./context";
 import { conflict, forbidden, invalid, isUniqueViolation, notFound, ServiceError } from "./errors";
+import { announceToCommunity } from "./notifications";
 import { audit } from "./audit";
 
 const CreateSchema = z.object({
@@ -104,25 +105,59 @@ export async function linkTelegramGroup(ctx: ServiceContext, i: GroupLinkInput) 
   if (!(await i.isChatAdmin(i.fromTelegramId))) throw forbidden("Only group administrators can connect this group to GoalFi.");
   const chatId = BigInt(i.chatId);
   const existing = await ctx.db.community.findUnique({ where: { telegramChatId: chatId } });
-  if (existing && existing.creatorId !== row.userId) {
-    // Another GoalFi user connected it before; group admins can take it over, keeping members.
-    await ctx.db.communityMember.upsert({
-      where: { communityId_userId: { communityId: existing.id, userId: row.userId } },
-      update: { role: "ADMIN" }, create: { communityId: existing.id, userId: row.userId, role: "ADMIN" },
-    });
-  }
-  await markUsed(ctx, row.id, chatId);
-  const community = existing
-    ? await ctx.db.community.update({ where: { id: existing.id }, data: { telegramTitle: i.chatTitle, telegramLinkedAt: ctx.now() } })
-    : await ctx.db.community.create({
-        data: {
-          name: i.chatTitle.slice(0, 60) || "Telegram group", slug: slugify(i.chatTitle), creatorId: row.userId, visibility: "PUBLIC",
-          telegramChatId: chatId, telegramTitle: i.chatTitle, telegramLinkedAt: ctx.now(),
-          members: { create: { userId: row.userId, role: "OWNER" } },
-        },
+  let community;
+  if (row.communityId) {
+    // The user chose an existing GoalFi community to connect this group to.
+    const target = await ctx.db.community.findUnique({ where: { id: row.communityId } });
+    if (!target) throw notFound("That community no longer exists. Generate a new link on the GoalFi website.");
+    const role = await ctx.db.communityMember.findUnique({ where: { communityId_userId: { communityId: target.id, userId: row.userId } } });
+    if (role?.role !== "OWNER" && role?.role !== "ADMIN") throw forbidden("Only the community's owner or admins can connect it to a group.");
+    if (existing && existing.id !== target.id) throw conflict(`This group is already connected to the GoalFi community “${existing.name}”.`);
+    if (target.telegramChatId !== null && target.telegramChatId !== chatId) throw conflict(`“${target.name}” is already connected to another Telegram group.`);
+    await markUsed(ctx, row.id, chatId);
+    community = await ctx.db.community.update({ where: { id: target.id }, data: { telegramChatId: chatId, telegramTitle: i.chatTitle, telegramLinkedAt: ctx.now() } });
+  } else {
+    if (existing && existing.creatorId !== row.userId) {
+      // Another GoalFi user connected it before; group admins can take it over, keeping members.
+      await ctx.db.communityMember.upsert({
+        where: { communityId_userId: { communityId: existing.id, userId: row.userId } },
+        update: { role: "ADMIN" }, create: { communityId: existing.id, userId: row.userId, role: "ADMIN" },
       });
+    }
+    await markUsed(ctx, row.id, chatId);
+    community = existing
+      ? await ctx.db.community.update({ where: { id: existing.id }, data: { telegramTitle: i.chatTitle, telegramLinkedAt: ctx.now() } })
+      : await ctx.db.community.create({
+          data: {
+            name: i.chatTitle.slice(0, 60) || "Telegram group", slug: slugify(i.chatTitle), creatorId: row.userId, visibility: "PUBLIC",
+            telegramChatId: chatId, telegramTitle: i.chatTitle, telegramLinkedAt: ctx.now(),
+            members: { create: { userId: row.userId, role: "OWNER" } },
+          },
+        });
+  }
+  // Challenges published before the group was connected get announced now (deduplicated with the normal announcement).
+  await announceActiveChallenges(ctx, community.id);
   await audit(ctx.db, row.userId, "community.telegram_linked", "Community", community.id, { chatId: i.chatId });
   return community;
+}
+
+/** Queue group announcements for a community's live public/community challenges (idempotent). */
+export async function announceActiveChallenges(ctx: ServiceContext, communityId: string): Promise<number> {
+  const list = await ctx.db.challenge.findMany({
+    where: { communityId, status: { in: ["UPCOMING", "ACTIVE"] }, visibility: { not: "PRIVATE" } },
+    orderBy: { endDate: "asc" },
+    take: 10,
+    include: { market: { select: { id: true } } },
+  });
+  for (const c of list) {
+    const url = new URL(`/challenges/${c.slug}`, ctx.appUrl).toString();
+    await announceToCommunity(ctx.db, communityId, {
+      text: `🎯 New challenge: ${c.title}\n\n${c.successCriteria}\n\nRuns ${c.startDate.toUTCString().slice(0, 16)} → ${c.endDate.toUTCString().slice(0, 16)}${c.market ? "\n📈 Prediction market live on GoalFi" : ""}`,
+      buttons: [{ text: "View & join", url }],
+      dedupKey: `ANNOUNCE_NEW:${c.id}`,
+    });
+  }
+  return list.length;
 }
 
 /** Bot removed from a group: keep the community, drop the chat link. */
