@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@goalfi/db";
-import { storageFromEnv, type Actor, type MarketGateway, type ServiceContext } from "@goalfi/services";
+import { resolveAppUrl, storageFromEnv, type Actor, type MarketGateway, type ServiceContext } from "@goalfi/services";
 import { createChainGateway } from "@goalfi/services/chain-gateway";
 import type { SessionUser } from "./auth";
 
@@ -23,7 +23,7 @@ export function services(): ServiceContext {
     db: prisma,
     gateway: getGateway(),
     storage: storageFromEnv(process.env),
-    appUrl: process.env.GOALFI_APP_URL ?? "http://localhost:3000",
+    appUrl: resolveAppUrl(process.env).url,
     now: () => new Date(),
   };
   return ctx;

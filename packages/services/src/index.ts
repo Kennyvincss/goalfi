@@ -14,3 +14,4 @@ export * from "./transactions";
 export * from "./lifecycle";
 export * from "./communities";
 export { audit } from "./audit";
+export * from "./app-url";

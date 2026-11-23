@@ -59,6 +59,59 @@ function initialState(): FormState {
 
 const STEPS = ["Template", "Basics", "Goal & evidence", "Schedule & verification", "Market", "Review"] as const;
 
+/** Which builder step owns each field (server validation keys use the same names). */
+const FIELD_STEP: Record<string, number> = {
+  title: 1, description: 1, categorySlug: 1, communityId: 1, visibility: 1,
+  rules: 2, successCriteria: 2, successRule: 2, unit: 2, amount: 2, evidenceReq: 2,
+  startDate: 3, endDate: 3, verifierUsernames: 3, requiredApprovals: 3, disputeWindowHours: 3, maxParticipants: 3, adminUsernames: 3,
+  marketQuestion: 4, market: 4, initialLiquidityUsdc: 4,
+};
+const FIELD_LABEL: Record<string, string> = {
+  title: "Title", description: "Description", communityId: "Community", rules: "Rules", successCriteria: "Success criteria",
+  successRule: "How success is measured", unit: "Unit", amount: "Amount", evidenceReq: "Evidence requirements", startDate: "Start",
+  endDate: "End", verifierUsernames: "Verifiers", requiredApprovals: "Approvals required", disputeWindowHours: "Dispute window",
+  marketQuestion: "Market question", market: "Market", initialLiquidityUsdc: "Initial liquidity",
+};
+const MAX_MARKET_DAYS = 30;
+
+type Errors = Record<string, string>;
+
+function validateStep(step: number, f: FormState, verifierCount: number): Errors {
+  const e: Errors = {};
+  const len = (s: string) => s.trim().length;
+  if (step === 1) {
+    if (len(f.title) < 4) e.title = "Give it a title of at least 4 characters.";
+    if (len(f.description) < 10) e.description = "Describe the challenge in at least 10 characters.";
+    if (f.visibility === "COMMUNITY" && !f.communityId) e.communityId = "Pick a community, or choose another visibility.";
+  }
+  if (step === 2) {
+    if (len(f.rules) < 10) e.rules = "Write at least 10 characters: what counts and what doesn’t.";
+    if (len(f.successCriteria) < 5) e.successCriteria = "Say what success means, in at least 5 characters.";
+    if ((f.ruleType === "individual_threshold" || f.ruleType === "collective_total") && !len(f.unit)) e.unit = "Enter a unit, e.g. km or books.";
+    const amount = f.ruleType === "individual_threshold" ? f.threshold : f.ruleType === "collective_total" ? f.target : f.ruleType === "daily_completion" ? f.requiredDays : f.minParticipants;
+    if (!(amount > 0)) e.amount = "Enter a number above 0.";
+    if (f.ruleType !== "collective_total" && !(f.minParticipants >= 1)) e.amount = "At least 1 participant must succeed.";
+    if (len(f.evidenceReq) < 5) e.evidenceReq = "Say what proof people should upload (at least 5 characters).";
+  }
+  if (step === 3) {
+    const start = new Date(f.startDate), end = new Date(f.endDate);
+    if (Number.isNaN(start.getTime())) e.startDate = "Pick a start date and time.";
+    if (Number.isNaN(end.getTime())) e.endDate = "Pick an end date and time.";
+    else if (end <= start) e.endDate = "The end must be after the start.";
+    else if (end.getTime() < Date.now() + 5 * 60_000) e.endDate = "The end must be at least 5 minutes from now.";
+    if (verifierCount === 0) e.verifierUsernames = "Add at least one verifier: the GoalFi username of someone who will check evidence.";
+    if (!(f.requiredApprovals >= 1)) e.requiredApprovals = "At least 1 approval is needed.";
+    else if (verifierCount > 0 && f.requiredApprovals > verifierCount) e.requiredApprovals = `Can’t be more than your ${verifierCount} verifier${verifierCount === 1 ? "" : "s"}.`;
+  }
+  if (step === 4 && f.marketType === "BINARY") {
+    if (len(f.marketQuestion || f.title) < 4) e.marketQuestion = "Write the question people will bet on (at least 4 characters).";
+    if (!(f.initialLiquidityUsdc >= 1)) e.initialLiquidityUsdc = "Initial liquidity must be at least 1.";
+    const end = new Date(f.endDate).getTime();
+    if (end > Date.now() + MAX_MARKET_DAYS * 86_400_000) e.market = `With a market, the challenge must end within ${MAX_MARKET_DAYS} days (a Predict pm-AMM limit). Go Back to “Schedule & verification” to shorten it, or choose “No market”.`;
+  }
+  return e;
+}
+
 export function ChallengeBuilder({
   templates, categories, communities, collateralSymbol, marketsAvailable,
 }: {
@@ -73,6 +126,7 @@ export function ChallengeBuilder({
   const [f, setF] = useState<FormState>(() => ({ ...initialState(), marketType: marketsAvailable ? "BINARY" : "NONE" }));
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, string[]>>({});
+  const [stepErrors, setStepErrors] = useState<Errors>({});
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF((s) => ({ ...s, [k]: v }));
 
@@ -116,6 +170,7 @@ export function ChallengeBuilder({
   });
 
   async function submit() {
+    if (goToFirstProblem()) return;
     setBusy(true);
     setError(null);
     setDetails({});
@@ -131,7 +186,30 @@ export function ChallengeBuilder({
   }
 
   const verifierCount = list(f.verifiers).length;
-  const field = (k: string) => details[k]?.[0] && <p className="text-xs text-no">{details[k]![0]}</p>;
+  const field = (k: string) => {
+    const msg = stepErrors[k] ?? details[k]?.[0];
+    return msg ? <p className="text-xs text-no" role="alert">{msg}</p> : null;
+  };
+  const hint = (text: string) => <p className="text-xs text-muted-foreground">{text}</p>;
+
+  /** Validate the current step before moving on; jump back to the first step with a problem on submit. */
+  function next() {
+    const errs = validateStep(step, f, verifierCount);
+    setStepErrors(errs);
+    if (Object.keys(errs).length) return;
+    setStep(step + 1);
+  }
+  function goToFirstProblem(): boolean {
+    for (let st = 1; st <= 4; st++) {
+      const errs = validateStep(st, f, verifierCount);
+      if (Object.keys(errs).length) {
+        setStepErrors(errs);
+        setStep(st);
+        return true;
+      }
+    }
+    return false;
+  }
   const select = "h-10 w-full rounded-md border border-input bg-card px-3 text-sm";
 
   return (
@@ -140,7 +218,7 @@ export function ChallengeBuilder({
         {STEPS.map((s, i) => (
           <li key={s}>
             <button
-              onClick={() => i <= step && setStep(i)}
+              onClick={() => { if (i <= step) { setStepErrors({}); setStep(i); } }}
               className={cn("flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm", i === step ? "bg-primary text-primary-foreground" : i < step ? "text-foreground hover:bg-muted" : "text-muted-foreground")}
               aria-current={i === step ? "step" : undefined}
             >
@@ -172,8 +250,8 @@ export function ChallengeBuilder({
         {step === 1 && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Basics</h2>
-            <div className="space-y-1.5"><Label htmlFor="title">Title</Label><Input id="title" value={f.title} onChange={(e) => set("title", e.target.value)} maxLength={120} />{field("title")}</div>
-            <div className="space-y-1.5"><Label htmlFor="desc">Description</Label><Textarea id="desc" value={f.description} onChange={(e) => set("description", e.target.value)} />{field("description")}</div>
+            <div className="space-y-1.5"><Label htmlFor="title">Title</Label><Input id="title" value={f.title} onChange={(e) => set("title", e.target.value)} maxLength={120} placeholder="e.g. Run 50 km in 7 days" />{field("title") ?? hint("4–120 characters.")}</div>
+            <div className="space-y-1.5"><Label htmlFor="desc">Description</Label><Textarea id="desc" value={f.description} onChange={(e) => set("description", e.target.value)} placeholder="What is the goal, and who is it for?" />{field("description") ?? hint("At least 10 characters.")}</div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5"><Label htmlFor="cat">Category</Label>
                 <select id="cat" className={select} value={f.categorySlug} onChange={(e) => set("categorySlug", e.target.value)}>{categories.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select>
@@ -208,8 +286,8 @@ export function ChallengeBuilder({
         {step === 2 && (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Goal & evidence</h2>
-            <div className="space-y-1.5"><Label htmlFor="rules">Rules</Label><Textarea id="rules" value={f.rules} onChange={(e) => set("rules", e.target.value)} placeholder="What counts, what doesn't." />{field("rules")}</div>
-            <div className="space-y-1.5"><Label htmlFor="crit">Success criteria (shown to everyone)</Label><Textarea id="crit" value={f.successCriteria} onChange={(e) => set("successCriteria", e.target.value)} className="min-h-16" />{field("successCriteria")}</div>
+            <div className="space-y-1.5"><Label htmlFor="rules">Rules</Label><Textarea id="rules" value={f.rules} onChange={(e) => set("rules", e.target.value)} placeholder="e.g. Only outdoor or treadmill runs count. One run per submission." />{field("rules") ?? hint("At least 10 characters.")}</div>
+            <div className="space-y-1.5"><Label htmlFor="crit">Success criteria (shown to everyone)</Label><Textarea id="crit" value={f.successCriteria} onChange={(e) => set("successCriteria", e.target.value)} className="min-h-16" placeholder="e.g. Each participant logs at least 50 km of approved runs." />{field("successCriteria") ?? hint("At least 5 characters. This is what “YES” means for the market.")}</div>
             <fieldset className="space-y-3 rounded-lg border p-4">
               <legend className="px-1 text-sm font-medium">How success is measured</legend>
               <select className={select} value={f.ruleType} onChange={(e) => set("ruleType", e.target.value as RuleType)} aria-label="Measurement type">
@@ -220,7 +298,7 @@ export function ChallengeBuilder({
               </select>
               <div className="grid gap-3 sm:grid-cols-3">
                 {(f.ruleType === "individual_threshold" || f.ruleType === "collective_total") && (
-                  <div className="space-y-1.5"><Label htmlFor="unit">Unit</Label><Input id="unit" value={f.unit} onChange={(e) => set("unit", e.target.value)} maxLength={32} /></div>
+                  <div className="space-y-1.5"><Label htmlFor="unit">Unit</Label><Input id="unit" value={f.unit} onChange={(e) => set("unit", e.target.value)} maxLength={32} />{field("unit")}</div>
                 )}
                 {f.ruleType === "individual_threshold" && <div className="space-y-1.5"><Label htmlFor="thr">Amount per person</Label><Input id="thr" type="number" min={0} value={f.threshold} onChange={(e) => set("threshold", Number(e.target.value))} /></div>}
                 {f.ruleType === "collective_total" && <div className="space-y-1.5"><Label htmlFor="tgt">Group target</Label><Input id="tgt" type="number" min={0} value={f.target} onChange={(e) => set("target", Number(e.target.value))} /></div>}
@@ -229,9 +307,10 @@ export function ChallengeBuilder({
                   <div className="space-y-1.5"><Label htmlFor="minp">{f.ruleType === "milestone" ? "Completers needed" : "Participants who must succeed"}</Label><Input id="minp" type="number" min={1} value={f.minParticipants} onChange={(e) => set("minParticipants", Number(e.target.value))} /></div>
                 )}
               </div>
+              {field("amount")}
               <p className="text-xs text-muted-foreground">The final outcome is computed from approved evidence using this rule.</p>
             </fieldset>
-            <div className="space-y-1.5"><Label htmlFor="ev">Evidence requirements</Label><Textarea id="ev" value={f.evidenceReq} onChange={(e) => set("evidenceReq", e.target.value)} className="min-h-16" />{field("evidenceReq")}</div>
+            <div className="space-y-1.5"><Label htmlFor="ev">Evidence requirements</Label><Textarea id="ev" value={f.evidenceReq} onChange={(e) => set("evidenceReq", e.target.value)} className="min-h-16" placeholder="e.g. Screenshot from Strava showing date and distance." />{field("evidenceReq") ?? hint("At least 5 characters.")}</div>
             <div className="space-y-1.5"><Label htmlFor="part">Participation requirements <span className="text-muted-foreground">(optional)</span></Label><Input id="part" value={f.participationReq} onChange={(e) => set("participationReq", e.target.value)} /></div>
           </div>
         )}
@@ -240,8 +319,8 @@ export function ChallengeBuilder({
           <div className="space-y-4">
             <h2 className="text-lg font-semibold">Schedule & verification</h2>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label htmlFor="start">Start</Label><Input id="start" type="datetime-local" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
-              <div className="space-y-1.5"><Label htmlFor="end">End (trading closes here)</Label><Input id="end" type="datetime-local" value={f.endDate} onChange={(e) => set("endDate", e.target.value)} />{field("endDate")}</div>
+              <div className="space-y-1.5"><Label htmlFor="start">Start</Label><Input id="start" type="datetime-local" value={f.startDate} onChange={(e) => set("startDate", e.target.value)} />{field("startDate")}</div>
+              <div className="space-y-1.5"><Label htmlFor="end">End (trading closes here)</Label><Input id="end" type="datetime-local" value={f.endDate} onChange={(e) => set("endDate", e.target.value)} />{field("endDate") ?? hint(f.marketType === "BINARY" ? `With a market: at most ${MAX_MARKET_DAYS} days from now.` : "")}</div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ver">Verifiers (GoalFi usernames)</Label>
@@ -272,16 +351,17 @@ export function ChallengeBuilder({
                 <div className="text-sm text-muted-foreground">Just the challenge: participation, verification and reputation.</div>
               </button>
             </div>
+            {field("market")}
             <p className="text-xs text-muted-foreground">Multi-outcome and community-funded (commitment vault) markets will be enabled after devnet verification.</p>
             {f.marketType === "BINARY" && (
               <div className="space-y-4">
-                <div className="space-y-1.5"><Label htmlFor="q">Market question</Label><Input id="q" value={f.marketQuestion} onChange={(e) => set("marketQuestion", e.target.value)} placeholder="Will the community complete the challenge?" /></div>
+                <div className="space-y-1.5"><Label htmlFor="q">Market question</Label><Input id="q" value={f.marketQuestion} onChange={(e) => set("marketQuestion", e.target.value)} placeholder={f.title ? `Will “${f.title}” succeed?` : "Will the community complete the challenge?"} />{field("marketQuestion") ?? hint("Leave empty to use the challenge title.")}</div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="px">Opening YES probability: {f.initialPricePct}%</Label>
                     <input id="px" type="range" min={1} max={99} value={f.initialPricePct} onChange={(e) => set("initialPricePct", Number(e.target.value))} className="w-full accent-[var(--primary)]" />
                   </div>
-                  <div className="space-y-1.5"><Label htmlFor="liq">Initial liquidity ({collateralSymbol})</Label><Input id="liq" type="number" min={1} value={f.initialLiquidityUsdc} onChange={(e) => set("initialLiquidityUsdc", Number(e.target.value))} />
+                  <div className="space-y-1.5"><Label htmlFor="liq">Initial liquidity ({collateralSymbol})</Label><Input id="liq" type="number" min={1} value={f.initialLiquidityUsdc} onChange={(e) => set("initialLiquidityUsdc", Number(e.target.value))} />{field("initialLiquidityUsdc")}
                     <p className="text-xs text-muted-foreground">You fund this from your own wallet after confirming. The market goes live once it’s funded.</p></div>
                 </div>
                 <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
@@ -308,7 +388,18 @@ export function ChallengeBuilder({
             {error && (
               <div className="rounded-md bg-no-soft px-3 py-2 text-sm text-no" role="alert">
                 {error}
-                {Object.keys(details).length > 0 && <ul className="mt-1 list-disc pl-5">{Object.entries(details).map(([k, v]) => <li key={k}>{k}: {v[0]}</li>)}</ul>}
+                {Object.keys(details).length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {Object.entries(details).map(([k, v]) => (
+                      <li key={k} className="flex flex-wrap items-center gap-2">
+                        <span><b>{FIELD_LABEL[k] ?? k}:</b> {v[0]}</span>
+                        {FIELD_STEP[k] !== undefined && (
+                          <button type="button" className="rounded border border-no/40 px-2 py-0.5 text-xs" onClick={() => setStep(FIELD_STEP[k]!)}>Fix in “{STEPS[FIELD_STEP[k]!]}”</button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </div>
@@ -316,8 +407,8 @@ export function ChallengeBuilder({
 
         {step > 0 && (
           <div className="mt-8 flex justify-between">
-            <Button variant="ghost" onClick={() => setStep(step - 1)}>Back</Button>
-            {step < STEPS.length - 1 ? <Button onClick={() => setStep(step + 1)}>Continue</Button> : <Button onClick={submit} disabled={busy}>{busy ? "Creating draft…" : "Create draft"}</Button>}
+            <Button variant="ghost" onClick={() => { setStepErrors({}); setStep(step - 1); }}>Back</Button>
+            {step < STEPS.length - 1 ? <Button onClick={next}>Continue</Button> : <Button onClick={submit} disabled={busy}>{busy ? "Creating draft…" : "Create draft"}</Button>}
           </div>
         )}
       </Card>

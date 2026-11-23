@@ -1,6 +1,7 @@
 import "server-only";
 import { webhookCallback, type Bot } from "grammy";
 import { ALLOWED_UPDATES, BOT_COMMANDS, createBot, deliverNotifications, deliverOutbox } from "@goalfi/bot";
+import { resolveAppUrl } from "@goalfi/services";
 import { services } from "./services";
 
 /**
@@ -15,12 +16,12 @@ export function telegramOnVercel(): boolean {
 function config() {
   const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? "";
-  const appUrl = process.env.GOALFI_APP_URL ?? "";
+  const appUrl = resolveAppUrl(process.env).url;
   const problems: string[] = [];
   if (!token) problems.push("TELEGRAM_BOT_TOKEN is not set");
   if (!/^[A-Za-z0-9_-]{16,256}$/.test(secret)) problems.push("TELEGRAM_WEBHOOK_SECRET must be 16+ letters/numbers (A-Z, a-z, 0-9, _ or -)");
-  if (!appUrl.startsWith("https://")) problems.push("GOALFI_APP_URL must be your https:// site address");
-  return { token, secret, url: appUrl ? new URL("/api/telegram/webhook", appUrl).toString() : "", problems };
+  if (!appUrl.startsWith("https://")) problems.push("GOALFI_APP_URL must be your https:// site address (Telegram only calls https)");
+  return { token, secret, url: new URL("/api/telegram/webhook", appUrl).toString(), problems };
 }
 
 let bot: Bot | undefined;

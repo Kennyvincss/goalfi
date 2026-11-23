@@ -54,6 +54,12 @@ export async function lifecycleTick(ctx: ServiceContext) {
       dedupKey: `${starting ? "STARTING" : "ENDING"}:${c.id}`,
     });
   }
+  // Heartbeat so the admin System status panel can tell whether the scheduler is running.
+  await ctx.db.platformSetting.upsert({
+    where: { key: "scheduler.lastRun" },
+    update: { value: { at: now.toISOString(), ...out } },
+    create: { key: "scheduler.lastRun", value: { at: now.toISOString(), ...out } },
+  });
   return out;
 }
 

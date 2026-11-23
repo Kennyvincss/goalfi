@@ -2,7 +2,7 @@ import "dotenv/config";
 import http from "node:http";
 import { webhookCallback } from "grammy";
 import { prisma } from "@goalfi/db";
-import { chainTick, lifecycleTick, storageFromEnv, type ServiceContext } from "@goalfi/services";
+import { chainTick, lifecycleTick, resolveAppUrl, storageFromEnv, type ServiceContext } from "@goalfi/services";
 import { createChainGateway } from "@goalfi/services/chain-gateway";
 import { ALLOWED_UPDATES, BOT_COMMANDS, createBot, deliverNotifications, deliverOutbox } from "./lib";
 
@@ -21,7 +21,7 @@ async function main() {
   }
   const svc: ServiceContext = {
     db: prisma, gateway, storage: storageFromEnv(process.env),
-    appUrl: process.env.GOALFI_APP_URL ?? "http://localhost:3000", now: () => new Date(),
+    appUrl: resolveAppUrl(process.env).url, now: () => new Date(),
   };
   const bot = createBot(token, svc, { apiRoot: process.env.TELEGRAM_API_ROOT || undefined });
   await bot.api.setMyCommands(BOT_COMMANDS);

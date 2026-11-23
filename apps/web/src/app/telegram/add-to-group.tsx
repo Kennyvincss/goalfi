@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Send, UserRoundCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function TelegramActions({ hasTelegram }: { hasTelegram: boolean }) {
+  const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const [startedBot, setStartedBot] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function go(purpose: "LINK_GROUP" | "LINK_ACCOUNT") {
     setBusy(purpose);
@@ -15,15 +18,25 @@ export function TelegramActions({ hasTelegram }: { hasTelegram: boolean }) {
     setBusy(null);
     if (!r.ok) return setError(d.error ?? "Could not create link");
     window.open(d.url, "_blank", "noopener,noreferrer");
+    if (purpose === "LINK_ACCOUNT") setStartedBot(true);
   }
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {!hasTelegram && (
-          <Button variant="outline" onClick={() => go("LINK_ACCOUNT")} disabled={!!busy}><UserRoundCheck />{busy === "LINK_ACCOUNT" ? "Opening…" : "1. Start the bot"}</Button>
-        )}
-        <Button onClick={() => go("LINK_GROUP")} disabled={!!busy}><Send />{busy === "LINK_GROUP" ? "Opening…" : hasTelegram ? "Add GoalFi to a group" : "2. Add GoalFi to a group"}</Button>
-      </div>
+      {!hasTelegram ? (
+        <div className="space-y-2">
+          <Button onClick={() => go("LINK_ACCOUNT")} disabled={!!busy}><UserRoundCheck />{busy === "LINK_ACCOUNT" ? "Opening…" : "1. Connect your Telegram account"}</Button>
+          <p className="text-xs text-muted-foreground">Opens the bot in Telegram. Tap <b>Start</b>; the bot replies “Linked to GoalFi account…”. Then come back here.</p>
+          {startedBot && <Button variant="outline" size="sm" onClick={() => router.refresh()}>Done: refresh this page</Button>}
+          <Button disabled variant="outline"><Send />2. Add GoalFi to a group</Button>
+          <p className="text-xs text-muted-foreground">Step 2 unlocks after step 1, because the bot has to know it’s you adding it.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm text-yes">✓ Your Telegram account is connected.</p>
+          <Button onClick={() => go("LINK_GROUP")} disabled={!!busy}><Send />{busy === "LINK_GROUP" ? "Opening…" : "Add GoalFi to a group"}</Button>
+          <p className="text-xs text-muted-foreground">Pick a group where you’re an admin. Within a few seconds the bot posts “now connected” in the group. If it posts a warning instead, it tells you what to fix.</p>
+        </div>
+      )}
       {error && <p className="text-sm text-no">{error}</p>}
       <p className="text-xs text-muted-foreground">Links are single-use and expire after 30 minutes.</p>
     </div>
