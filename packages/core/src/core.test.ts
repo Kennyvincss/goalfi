@@ -15,6 +15,7 @@ import {
   minOutWithSlippage,
   onchainMarketName,
   periodIndex,
+  reviewDeadline,
   resolutionAwards,
   SuccessRuleSchema,
   tallyVotes,
@@ -249,5 +250,30 @@ describe("lifecycle", () => {
     expect(timeTransition("UPCOMING", s, e, new Date("2026-01-02"))).toBe("ACTIVE");
     expect(timeTransition("ACTIVE", s, e, new Date("2026-01-11"))).toBe("IN_REVIEW");
     expect(timeTransition("ACTIVE", s, e, new Date("2026-01-05"))).toBeNull();
+  });
+});
+
+describe("review deadline + auto-settle input", () => {
+  const future = (days: number) => new Date(Date.now() + days * 86_400_000);
+  const valid = {
+    title: "Run 50 km", description: "Run fifty kilometres this week.", categorySlug: "fitness",
+    rules: "Runs must be recorded.", successCriteria: "50 km each", evidenceReq: "Screenshot",
+    successRule: { type: "milestone", minCompleters: 1 }, kind: "GROUP", visibility: "PUBLIC", recurrence: "NONE",
+    startDate: future(0), endDate: future(7), requiredApprovals: 1, disputeWindowHours: 24, verifierUsernames: ["a"], adminUsernames: [],
+    marketQuestion: "Will they run 50 km?", market: { type: "NONE" },
+  };
+  it("auto-settle requires a deadline", () => {
+    expect(CreateChallengeSchema.safeParse({ ...valid, autoSettle: true }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...valid, autoSettle: true, reviewDeadlineHours: 48 }).success).toBe(true);
+  });
+  it("deadline bounds", () => {
+    expect(CreateChallengeSchema.safeParse({ ...valid, reviewDeadlineHours: 12 }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...valid, reviewDeadlineHours: 400 }).success).toBe(false);
+  });
+  it("defaults to manual settlement", () => {
+    const r = CreateChallengeSchema.parse(valid);
+    expect(r.autoSettle).toBe(false);
+    expect(reviewDeadline(new Date("2026-01-01T00:00:00Z"), 48)?.toISOString()).toBe("2026-01-03T00:00:00.000Z");
+    expect(reviewDeadline(new Date(), null)).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ export class FakeGateway implements MarketGateway {
     if (!m) throw new Error("market not found on-chain");
     if (m.resolved) return { signature: null };
     if (this.clock().getTime() / 1000 < m.endTs) throw new Error("MarketNotExpired");
-    const sig = `ResolveSig${p.address.slice(6, 20)}`.padEnd(88, "1");
+    const sig = `ResolveSig${p.address.slice(6)}`.padEnd(88, "1"); // unique per market
     await onSigned(sig);
     m.resolved = true;
     m.winningSide = p.side;

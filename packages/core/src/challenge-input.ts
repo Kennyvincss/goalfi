@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { SuccessRuleSchema } from "./success-rule";
 
+/** Review deadline bounds (hours after the end date). The minimum matches the 24h evidence grace period. */
+export const REVIEW_DEADLINE_MIN_HOURS = 24;
+export const REVIEW_DEADLINE_MAX_HOURS = 14 * 24;
+
+/** When verifiers must have decided, or null if the challenge has no review deadline. */
+export function reviewDeadline(endDate: Date, reviewDeadlineHours: number | null | undefined): Date | null {
+  return reviewDeadlineHours ? new Date(endDate.getTime() + reviewDeadlineHours * 3_600_000) : null;
+}
+
 /** pm-AMM program bounds (from the IDL error definitions, see docs/PM_AMM_INTEGRATION.md). */
 export const PM_AMM_LIMITS = {
   /** `InvalidMarketDuration`: 5 min ≤ d ≤ 30 days (vaults; applied to all GoalFi markets). */
@@ -88,6 +97,10 @@ export const CreateChallengeSchema = z
     endDate: z.coerce.date(),
     requiredApprovals: z.number().int().min(1).max(20),
     disputeWindowHours: z.number().int().min(1).max(14 * 24),
+    /** Hours after the end date for verifiers to decide; evidence not approved by then counts as rejected. */
+    reviewDeadlineHours: z.number().int().min(REVIEW_DEADLINE_MIN_HOURS).max(REVIEW_DEADLINE_MAX_HOURS).optional(),
+    /** Settle automatically with the computed outcome once nothing blocks resolution. */
+    autoSettle: z.boolean().default(false),
     maxParticipants: z.number().int().min(1).max(100_000).optional(),
     verifierUsernames: z.array(z.string().min(1)).max(50),
     adminUsernames: z.array(z.string().min(1)).max(20),
@@ -97,6 +110,8 @@ export const CreateChallengeSchema = z
   })
   .superRefine((c, ctx) => {
     if (c.endDate <= c.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after start date" });
+    if (c.autoSettle && c.reviewDeadlineHours === undefined)
+      ctx.addIssue({ code: "custom", path: ["reviewDeadlineHours"], message: "Automatic settlement needs a review deadline, so one missing review can't block it forever" });
     if (c.visibility === "COMMUNITY" && !c.communityId)
       ctx.addIssue({ code: "custom", path: ["communityId"], message: "Community challenges need a community" });
     if (c.verifierUsernames.length < c.requiredApprovals)

@@ -37,6 +37,9 @@ interface FormState {
   requiredApprovals: number;
   disputeWindowHours: number;
   maxParticipants: string;
+  hasReviewDeadline: boolean;
+  reviewDeadlineHours: number;
+  autoSettle: boolean;
   marketType: "BINARY" | "NONE";
   marketQuestion: string;
   initialPricePct: number;
@@ -53,6 +56,7 @@ function initialState(): FormState {
     rules: "", successCriteria: "", ruleType: "individual_threshold", unit: "km", threshold: 50, target: 1000, requiredDays: 30, minParticipants: 1,
     evidenceReq: "", participationReq: "", startDate: toLocalInput(start), endDate: toLocalInput(new Date(start.getTime() + 7 * 86_400_000)),
     verifiers: "", admins: "", requiredApprovals: 1, disputeWindowHours: 24, maxParticipants: "",
+    hasReviewDeadline: true, reviewDeadlineHours: 48, autoSettle: true,
     marketType: "BINARY", marketQuestion: "", initialPricePct: 50, initialLiquidityUsdc: 50,
   };
 }
@@ -63,13 +67,13 @@ const STEPS = ["Template", "Basics", "Goal & evidence", "Schedule & verification
 const FIELD_STEP: Record<string, number> = {
   title: 1, description: 1, categorySlug: 1, communityId: 1, visibility: 1,
   rules: 2, successCriteria: 2, successRule: 2, unit: 2, amount: 2, evidenceReq: 2,
-  startDate: 3, endDate: 3, verifierUsernames: 3, requiredApprovals: 3, disputeWindowHours: 3, maxParticipants: 3, adminUsernames: 3,
+  startDate: 3, endDate: 3, verifierUsernames: 3, reviewDeadlineHours: 3, requiredApprovals: 3, disputeWindowHours: 3, maxParticipants: 3, adminUsernames: 3,
   marketQuestion: 4, market: 4, initialLiquidityUsdc: 4,
 };
 const FIELD_LABEL: Record<string, string> = {
   title: "Title", description: "Description", communityId: "Community", rules: "Rules", successCriteria: "Success criteria",
   successRule: "How success is measured", unit: "Unit", amount: "Amount", evidenceReq: "Evidence requirements", startDate: "Start",
-  endDate: "End", verifierUsernames: "Verifiers", requiredApprovals: "Approvals required", disputeWindowHours: "Dispute window",
+  endDate: "End", reviewDeadlineHours: "Review deadline", verifierUsernames: "Verifiers", requiredApprovals: "Approvals required", disputeWindowHours: "Dispute window",
   marketQuestion: "Market question", market: "Market", initialLiquidityUsdc: "Initial liquidity",
 };
 const MAX_MARKET_DAYS = 30;
@@ -101,6 +105,10 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
     else if (end.getTime() < Date.now() + 5 * 60_000) e.endDate = "The end must be at least 5 minutes from now.";
     if (verifierCount === 0) e.verifierUsernames = "Add at least one verifier: the GoalFi username of someone who will check evidence.";
     if (!(f.requiredApprovals >= 1)) e.requiredApprovals = "At least 1 approval is needed.";
+    if (f.hasReviewDeadline && !(f.reviewDeadlineHours >= 24 && f.reviewDeadlineHours <= 336))
+      e.reviewDeadlineHours = "Choose between 24 and 336 hours (14 days) after the end.";
+    if (f.autoSettle && !f.hasReviewDeadline)
+      e.reviewDeadlineHours = "Automatic settling needs a review deadline, so one missing review can’t block the result forever.";
     else if (verifierCount > 0 && f.requiredApprovals > verifierCount) e.requiredApprovals = `Can’t be more than your ${verifierCount} verifier${verifierCount === 1 ? "" : "s"}.`;
   }
   if (step === 4 && f.marketType === "BINARY") {
@@ -165,6 +173,7 @@ export function ChallengeBuilder({
     successRule, participationReq: f.participationReq || undefined, evidenceReq: f.evidenceReq, kind: f.kind, visibility: f.visibility,
     recurrence: f.recurrence, communityId: f.communityId || undefined, startDate: new Date(f.startDate).toISOString(), endDate: new Date(f.endDate).toISOString(),
     requiredApprovals: f.requiredApprovals, disputeWindowHours: f.disputeWindowHours, maxParticipants: f.maxParticipants ? Number(f.maxParticipants) : undefined,
+    reviewDeadlineHours: f.hasReviewDeadline ? f.reviewDeadlineHours : undefined, autoSettle: f.autoSettle,
     verifierUsernames: list(f.verifiers), adminUsernames: list(f.admins), marketQuestion: f.marketQuestion || f.title,
     market: f.marketType === "NONE" ? { type: "NONE" } : { type: "BINARY", initialPriceBps: Math.round(f.initialPricePct * 100), initialLiquidityUsdc: f.initialLiquidityUsdc },
   });
@@ -334,6 +343,27 @@ export function ChallengeBuilder({
               <div className="space-y-1.5"><Label htmlFor="max">Max participants</Label><Input id="max" type="number" min={1} value={f.maxParticipants} onChange={(e) => set("maxParticipants", e.target.value)} placeholder="No limit" /></div>
             </div>
             <div className="space-y-1.5"><Label htmlFor="adm">Extra administrators <span className="text-muted-foreground">(optional)</span></Label><Input id="adm" value={f.admins} onChange={(e) => set("admins", e.target.value)} placeholder="@dave" /></div>
+            <fieldset className="space-y-3 rounded-lg border p-4">
+              <legend className="px-1 text-sm font-medium">After the challenge ends</legend>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={f.hasReviewDeadline} onChange={(e) => set("hasReviewDeadline", e.target.checked)} />
+                <span>
+                  <b>Review deadline:</b> verifiers have
+                  <input aria-label="Review deadline in hours" type="number" min={24} max={336} value={f.reviewDeadlineHours} disabled={!f.hasReviewDeadline}
+                    onChange={(e) => set("reviewDeadlineHours", Number(e.target.value))} className="mx-1.5 h-7 w-16 rounded border bg-card px-1.5 text-sm" />
+                  hours after the end to decide.
+                  <span className="block text-xs text-muted-foreground">Evidence not approved by then counts as <b>rejected</b> (the submitter can still dispute).</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={f.autoSettle} onChange={(e) => set("autoSettle", e.target.checked)} />
+                <span>
+                  <b>Settle automatically</b>
+                  <span className="block text-xs text-muted-foreground">Once everything is reviewed, no disputes are open and the dispute window has passed, GoalFi settles the result computed from approved evidence, including the on-chain market, without an admin click.</span>
+                </span>
+              </label>
+              {field("reviewDeadlineHours")}
+            </fieldset>
           </div>
         )}
 
@@ -383,6 +413,7 @@ export function ChallengeBuilder({
               <dt className="text-muted-foreground">When</dt><dd>{new Date(f.startDate).toLocaleString()} → {new Date(f.endDate).toLocaleString()}</dd>
               <dt className="text-muted-foreground">Success</dt><dd>{f.successCriteria || "—"}</dd>
               <dt className="text-muted-foreground">Verification</dt><dd>{f.requiredApprovals} of {verifierCount} verifiers · {f.disputeWindowHours}h disputes</dd>
+              <dt className="text-muted-foreground">Settlement</dt><dd>{f.autoSettle ? "Automatic" : "Admin confirms"}{f.hasReviewDeadline ? ` · review deadline ${f.reviewDeadlineHours}h after the end (unreviewed = rejected)` : " · no review deadline"}</dd>
               <dt className="text-muted-foreground">Market</dt><dd>{f.marketType === "NONE" ? "None" : `YES/NO opening at ${f.initialPricePct}% with ${f.initialLiquidityUsdc} ${collateralSymbol}`}</dd>
             </dl>
             {error && (

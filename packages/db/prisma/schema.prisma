@@ -262,6 +262,10 @@ model Challenge {
   occurrences        Challenge[]         @relation("Recurring")
   requiredApprovals  Int                 @default(1)
   disputeWindowHours Int                 @default(24)
+  /// Hours after the end date by which verifiers must decide. Evidence not approved by then counts as rejected.
+  reviewDeadlineHours Int?
+  /// Settle (resolve on-chain) automatically once nothing blocks resolution, using the computed outcome.
+  autoSettle         Boolean             @default(false)
   maxParticipants    Int?
   startDate          DateTime            @map("start_date")
   endDate            DateTime            @map("end_date")
@@ -370,6 +374,8 @@ model Evidence {
   supersededBy  Evidence?      @relation("Supersedes")
   submittedAt   DateTime       @default(now()) @map("submitted_at")
   decidedAt     DateTime?
+  /// Set when the system decided instead of verifiers, e.g. "REVIEW_DEADLINE" (not approved in time).
+  autoDecision  String?
 
   files         EvidenceFile[]
   verifications Verification[]

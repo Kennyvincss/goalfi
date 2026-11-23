@@ -68,6 +68,8 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
       recurrence: input.recurrence,
       requiredApprovals: input.requiredApprovals,
       disputeWindowHours: input.disputeWindowHours,
+      reviewDeadlineHours: input.reviewDeadlineHours ?? null,
+      autoSettle: input.autoSettle,
       maxParticipants: input.maxParticipants ?? null,
       startDate: input.startDate,
       endDate: input.endDate,

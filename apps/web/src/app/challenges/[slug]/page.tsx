@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, ExternalLink, Scale, ShieldCheck, Users } from "lucide-react";
 import { prisma } from "@goalfi/db";
-import { SuccessRuleSchema, evaluateSuccessRule, progressFraction, formatUsd } from "@goalfi/core";
+import { SuccessRuleSchema, evaluateSuccessRule, progressFraction, formatUsd, reviewDeadline } from "@goalfi/core";
 import { challengeAccess, listEvidence, resolutionReport } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,6 +110,10 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
           <CardContent className="space-y-2 text-sm">
             <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.requiredApprovals} of {verifiers.length} verifiers must approve each submission</p>
             <p className="flex items-center gap-2"><Scale className="size-4 text-primary" />{c.disputeWindowHours}h dispute window after each decision</p>
+            {c.reviewDeadlineHours && (
+              <p className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />Review deadline {reviewDeadline(c.endDate, c.reviewDeadlineHours)!.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: evidence not approved by then counts as rejected</p>
+            )}
+            <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" />{c.autoSettle ? "Settles automatically once everything is reviewed and the dispute window has passed" : "An administrator confirms the result after review"}</p>
             <p className="text-muted-foreground">Evidence: {c.evidenceReq}</p>
             {verifiers.length > 0 && <p className="text-muted-foreground">Verifiers: {verifiers.map((v) => `@${v.user.username}`).join(", ")}</p>}
           </CardContent>
@@ -139,7 +143,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             canManage={access.isAdmin} isCreator={access.isCreator} linkedWallet={user?.walletAddress ?? null}
           />
         )}
-        {report && <ResolutionPanel challengeId={c.id} report={report} hasMarket={!!m && !["CREATING", "FAILED"].includes(m.status)} isPlatformAdmin={user?.role === "PLATFORM_ADMIN"} />}
+        {report && <ResolutionPanel challengeId={c.id} autoSettle={c.autoSettle} report={report} hasMarket={!!m && !["CREATING", "FAILED"].includes(m.status)} isPlatformAdmin={user?.role === "PLATFORM_ADMIN"} />}
         {["UPCOMING", "ACTIVE"].includes(c.status) && (
           <Card>
             <CardContent className="space-y-3 pt-5">

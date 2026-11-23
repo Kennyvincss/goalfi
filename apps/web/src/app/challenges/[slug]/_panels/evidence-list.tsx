@@ -20,6 +20,8 @@ export interface EvidenceItem {
   decidedAt: string | null;
   contentHash: string;
   superseded: boolean;
+  /** "REVIEW_DEADLINE" when the system rejected it because nobody approved it in time. */
+  autoDecision: string | null;
   files: { id: string; mimeType: string }[];
   votes: { username: string; decision: string; reason: string | null }[];
   disputes: { id: string; status: string; reason: string; finalDecision: string | null; resolutionNote: string | null }[];
@@ -63,6 +65,7 @@ function EvidenceRow({ e, viewerId, participantIds, disputeWindowHours, unit, mo
           <Badge variant={VARIANT[e.status] ?? "muted"}>{e.status.replace("_", " ").toLowerCase()}</Badge>
         </span>
       </div>
+      {e.autoDecision === "REVIEW_DEADLINE" && <p className="mt-1 text-xs text-warning">Not approved before the review deadline, so it counts as rejected.</p>}
       <p className="mt-2 whitespace-pre-line text-sm">{e.description}</p>
       {(e.files.length > 0 || e.links.length > 0) && (
         <div className="mt-3 flex flex-wrap gap-2">

@@ -66,14 +66,30 @@ export async function resolveChallenge(ctx: ServiceContext, actor: Actor, challe
     if (actor.role !== "PLATFORM_ADMIN" || !overrideReason)
       throw conflict(`The verified evidence gives ${report.proposedOutcome} (${report.evaluation.explanation}). Only a platform admin can override, with a reason.`);
   }
-  const c = a.challenge;
+  return executeResolution(ctx, challengeId, outcome, actor.id, { computed: report.proposedOutcome, overrideReason: overrideReason ?? null });
+}
+
+/**
+ * Lock → resolve the market on-chain (if any) → finalize. Shared by the admin button and
+ * auto-settlement. Callers must have checked the resolution gate first. resolverId = null means
+ * the system resolved it automatically.
+ */
+export async function executeResolution(
+  ctx: ServiceContext,
+  challengeId: string,
+  outcome: "YES" | "NO",
+  resolverId: string | null,
+  meta: Record<string, unknown> = {},
+) {
+  const c = await ctx.db.challenge.findUnique({ where: { id: challengeId }, include: { market: true } });
+  if (!c) throw notFound("Challenge not found");
   const m = c.market && !["CREATING", "FAILED"].includes(c.market.status) ? c.market : null;
   if (c.market && !m) await ctx.db.market.update({ where: { id: c.market.id }, data: { status: "FAILED", lastError: "Never created on-chain; resolved off-chain" } });
 
   // Lock: only one resolver can move the challenge into RESOLVING.
   const lock = await ctx.db.challenge.updateMany({ where: { id: c.id, status: { in: ["ACTIVE", "IN_REVIEW", "UPCOMING"] } }, data: { status: "RESOLVING" } });
   if (lock.count !== 1) throw conflict("Challenge is already being resolved");
-  await audit(ctx.db, actor.id, "challenge.resolve_started", "Challenge", c.id, { outcome, computed: report.proposedOutcome, overrideReason: overrideReason ?? null });
+  await audit(ctx.db, resolverId, resolverId ? "challenge.resolve_started" : "challenge.auto_resolve_started", "Challenge", c.id, { outcome, ...meta } as object);
 
   if (m) {
     const gw = ctx.gateway;
@@ -91,7 +107,7 @@ export async function resolveChallenge(ctx: ServiceContext, actor: Actor, challe
       const msg = (err as Error).message.slice(0, 500);
       const sent = (await ctx.db.market.findUnique({ where: { id: m.id } }))?.resolutionSignature;
       if (!sent) {
-        // Nothing was broadcast: roll back so the admin can retry.
+        // Nothing was broadcast: roll back so it can be retried.
         await ctx.db.market.update({ where: { id: m.id }, data: { status: "CLOSED", winningOutcome: null, lastError: msg } });
         await ctx.db.challenge.update({ where: { id: c.id }, data: { status: "IN_REVIEW" } });
       } else {
@@ -101,11 +117,17 @@ export async function resolveChallenge(ctx: ServiceContext, actor: Actor, challe
       throw new ServiceError(502, `On-chain resolution failed: ${msg}`);
     }
   }
-  return finalizeResolution(ctx, c.id, outcome, actor.id);
+  return finalizeResolution(ctx, c.id, outcome, resolverId);
+}
+
+/** The resolution gate evaluated by the system (for auto-settlement), not for a particular user. */
+export async function systemResolutionReport(ctx: ServiceContext, challengeId: string): Promise<ResolutionReport> {
+  const input = await gatherResolutionInput(ctx, challengeId);
+  return evaluateResolution({ ...input, actor: { id: "system", isChallengeAdmin: true, isPlatformAdmin: false } });
 }
 
 /** Write final state, participants, reputation and notifications. Idempotent. */
-export async function finalizeResolution(ctx: ServiceContext, challengeId: string, outcome: "YES" | "NO", resolverId: string) {
+export async function finalizeResolution(ctx: ServiceContext, challengeId: string, outcome: "YES" | "NO", resolverId: string | null) {
   const c = await ctx.db.challenge.findUnique({ where: { id: challengeId }, include: { market: true } });
   if (!c) throw notFound();
   if (c.status === "RESOLVED") return c;
@@ -169,7 +191,8 @@ export async function reconcileResolutions(ctx: ServiceContext): Promise<number>
   for (const m of stuck) {
     const state = await gw.fetchMarket(m.marketAddress!).catch(() => null);
     if (state?.resolved && m.winningOutcome && m.challenge.resolvedById === null && m.challenge.status === "RESOLVING") {
-      const resolver = (await ctx.db.auditLog.findFirst({ where: { entityId: m.challengeId, action: "challenge.resolve_started" }, orderBy: { createdAt: "desc" } }))?.actorId ?? m.challenge.creatorId;
+      const started = await ctx.db.auditLog.findFirst({ where: { entityId: m.challengeId, action: { in: ["challenge.resolve_started", "challenge.auto_resolve_started"] } }, orderBy: { createdAt: "desc" } });
+      const resolver = started?.actorId ?? null; // null = settled automatically
       await finalizeResolution(ctx, m.challengeId, m.winningOutcome === 1 ? "YES" : "NO", resolver);
       done++;
     }
