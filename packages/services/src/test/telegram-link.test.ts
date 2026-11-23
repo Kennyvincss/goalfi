@@ -56,3 +56,44 @@ describe("Telegram linking", () => {
     expect(await prisma.community.count({ where: { name: "Runners" } })).toBe(1);
   });
 });
+
+describe("Telegram linking to an existing community", () => {
+  const { ctx } = makeCtx();
+  beforeAll(resetDb);
+  afterAll(() => prisma.$disconnect());
+  const yes = async () => true;
+
+  it("connects the group to the chosen community and announces its live challenges once", async () => {
+    const owner = await makeUser("own2", { telegramId: 9001n });
+    const outsider = await makeUser("out2", { telegramId: 9002n });
+    const cat = await prisma.category.findFirstOrThrow();
+    const community = await prisma.community.create({ data: { slug: "good-or-nah", name: "good or nah", creatorId: owner.id, members: { create: { userId: owner.id, role: "OWNER" } } } });
+    const base = { description: "d", rules: "r", successCriteria: "20 sessions", successRule: { type: "milestone", minCompleters: 1 }, evidenceReq: "e", creatorId: owner.id, categoryId: cat.id, communityId: community.id, startDate: new Date(Date.now() + 3600e3), endDate: new Date(Date.now() + 30 * 86400e3) };
+    const live = await prisma.challenge.create({ data: { ...base, slug: "gym-20", title: "20 gym sessions in 30 days", status: "UPCOMING" } });
+    await prisma.challenge.create({ data: { ...base, slug: "secret", title: "Private one", status: "ACTIVE", visibility: "PRIVATE" } });
+    await prisma.challenge.create({ data: { ...base, slug: "draft", title: "Draft one", status: "DRAFT" } });
+
+    // A non-admin of the community can't use a code pointing at it.
+    await prisma.telegramLinkCode.create({ data: { code: "grp-out-1", purpose: "LINK_GROUP", userId: outsider.id, communityId: community.id, expiresAt: new Date(Date.now() + 600e3) } });
+    await expect(linkTelegramGroup(ctx, { code: "grp-out-1", chatId: -200, chatTitle: "good or nah", fromTelegramId: 9002, isChatAdmin: yes, botIsMember: yes })).rejects.toMatchObject({ status: 403 });
+
+    await prisma.telegramLinkCode.create({ data: { code: "grp-own-1", purpose: "LINK_GROUP", userId: owner.id, communityId: community.id, expiresAt: new Date(Date.now() + 600e3) } });
+    const linked = await linkTelegramGroup(ctx, { code: "grp-own-1", chatId: -200, chatTitle: "Good Or Nah 💪", fromTelegramId: 9001, isChatAdmin: yes, botIsMember: yes });
+    expect(linked.id).toBe(community.id); // no duplicate community
+    expect(linked.telegramChatId).toBe(-200n);
+    expect(await prisma.community.count({ where: { name: { contains: "good or nah", mode: "insensitive" } } })).toBe(1);
+    const queued = await prisma.telegramOutbox.findMany({ where: { chatId: -200n } });
+    expect(queued.map((q) => q.dedupKey)).toEqual([`ANNOUNCE_NEW:${live.id}`]); // private + draft not announced
+
+    // Re-linking the same group doesn't queue the announcement again.
+    await unlinkTelegramGroup(ctx, -200);
+    await prisma.telegramLinkCode.create({ data: { code: "grp-own-2", purpose: "LINK_GROUP", userId: owner.id, communityId: community.id, expiresAt: new Date(Date.now() + 600e3) } });
+    await linkTelegramGroup(ctx, { code: "grp-own-2", chatId: -200, chatTitle: "good or nah", fromTelegramId: 9001, isChatAdmin: yes, botIsMember: yes });
+    expect(await prisma.telegramOutbox.count({ where: { chatId: -200n } })).toBe(1);
+
+    // A group already connected elsewhere can't be attached to a second community.
+    const other = await prisma.community.create({ data: { slug: "other", name: "Other", creatorId: owner.id, members: { create: { userId: owner.id, role: "OWNER" } } } });
+    await prisma.telegramLinkCode.create({ data: { code: "grp-own-3", purpose: "LINK_GROUP", userId: owner.id, communityId: other.id, expiresAt: new Date(Date.now() + 600e3) } });
+    await expect(linkTelegramGroup(ctx, { code: "grp-own-3", chatId: -200, chatTitle: "x", fromTelegramId: 9001, isChatAdmin: yes, botIsMember: yes })).rejects.toMatchObject({ status: 409 });
+  });
+});

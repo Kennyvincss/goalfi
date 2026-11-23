@@ -23,9 +23,12 @@ const COMMANDS = [
 
 export default async function TelegramPage() {
   const user = await getCurrentUser();
-  const groups = user
-    ? await prisma.community.findMany({ where: { creatorId: user.id, telegramChatId: { not: null } }, select: { slug: true, name: true, telegramTitle: true } })
-    : [];
+  const [groups, unlinked] = user
+    ? await Promise.all([
+        prisma.community.findMany({ where: { members: { some: { userId: user.id, role: { in: ["OWNER", "ADMIN"] } } }, telegramChatId: { not: null } }, select: { slug: true, name: true, telegramTitle: true } }),
+        prisma.community.findMany({ where: { members: { some: { userId: user.id, role: { in: ["OWNER", "ADMIN"] } } }, telegramChatId: null }, select: { id: true, name: true }, orderBy: { createdAt: "desc" } }),
+      ])
+    : [[], []];
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-10">
       <div>
@@ -43,7 +46,7 @@ export default async function TelegramPage() {
               </li>
             ))}
           </ol>
-          {user ? <TelegramActions hasTelegram={!!user.telegramId} /> : (
+          {user ? <TelegramActions hasTelegram={!!user.telegramId} communities={unlinked} /> : (
             <Button asChild><Link href="/login?next=/telegram">Sign in to connect a group</Link></Button>
           )}
         </CardContent>
@@ -53,7 +56,7 @@ export default async function TelegramPage() {
           <CardHeader><CardTitle>Your connected groups</CardTitle></CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm">
-              {groups.map((g) => <li key={g.slug}><Link className="hover:text-primary" href={`/communities/${g.slug}`}>{g.telegramTitle ?? g.name}</Link></li>)}
+              {groups.map((g) => <li key={g.slug}><Link className="hover:text-primary" href={`/communities/${g.slug}`}>{g.name}</Link>{g.telegramTitle && g.telegramTitle !== g.name && <span className="text-muted-foreground"> ↔ Telegram group “{g.telegramTitle}”</span>}</li>)}
             </ul>
           </CardContent>
         </Card>
