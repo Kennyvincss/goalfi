@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { ACCOUNT_PROVIDERS, APP_METRICS, CHALLENGE_TEMPLATES, marketLimits, suggestChallenges, type AppMetricId } from "@goalfi/core";
 import { listAccounts, recentDaily, telegramMemberCount } from "@goalfi/services";
 import { accountsConfig } from "@/lib/server/accounts";
+import { topPicks } from "@/lib/server/ideas";
 import { prisma } from "@goalfi/db";
 import { getCurrentUser } from "@/lib/server/auth";
 import { services } from "@/lib/server/services";
@@ -10,7 +11,7 @@ import { ChallengeBuilder } from "./builder";
 export const metadata = { title: "Create a challenge" };
 export const dynamic = "force-dynamic";
 
-export default async function NewChallenge({ searchParams }: { searchParams: Promise<{ suggest?: string; community?: string }> }) {
+export default async function NewChallenge({ searchParams }: { searchParams: Promise<{ suggest?: string; community?: string; template?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login?next=/challenges/new");
   const [categories, communities] = await Promise.all([
@@ -28,7 +29,8 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
     TELEGRAM: { available: !!cfg?.telegram, connected: true },
   };
   for (const p of ACCOUNT_PROVIDERS) apps[p] = { available: !!cfg?.providers[p], connected: accounts.some((a) => a.provider === p && a.status === "ACTIVE") };
-  const { suggest, community } = await searchParams;
+  const { suggest, community, template } = await searchParams;
+  const picks = suggest || template ? [] : await topPicks(user.id);
   let suggestion = null;
   const [metricId] = (suggest ?? "").split(":") as [AppMetricId];
   if (suggest && metricId in APP_METRICS) {
@@ -59,6 +61,8 @@ export default async function NewChallenge({ searchParams }: { searchParams: Pro
           communities={communities.map((c) => ({ id: c.id, name: c.name }))}
           apps={apps}
           liquidityCaps={liquidityCaps}
+          initialTemplateId={template ?? null}
+          picks={picks}
           suggestion={suggestion}
           collateralSymbol={gw?.collateralSymbol ?? "USDC"}
           marketsAvailable={!!gw}

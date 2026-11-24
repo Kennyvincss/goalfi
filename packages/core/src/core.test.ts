@@ -104,6 +104,19 @@ describe("success rules", () => {
   });
   it("all templates have valid rules", () => {
     for (const t of CHALLENGE_TEMPLATES) expect(SuccessRuleSchema.safeParse(t.successRule).success).toBe(true);
+    // Every idea is a complete, valid challenge with a market (unique ids, ≤ 30 days).
+    expect(new Set(CHALLENGE_TEMPLATES.map((t) => t.id)).size).toBe(CHALLENGE_TEMPLATES.length);
+    for (const t of CHALLENGE_TEMPLATES) {
+      const start = new Date();
+      const r = CreateChallengeSchema.safeParse({
+        title: t.title, description: t.description, categorySlug: t.category, rules: t.rules, successCriteria: t.successCriteria,
+        successRule: t.successRule, evidenceReq: t.evidenceReq, kind: "GROUP", visibility: "PUBLIC", recurrence: t.recurrence,
+        startDate: start, endDate: new Date(start.getTime() + t.durationDays * 86_400_000), requiredApprovals: 1, disputeWindowHours: 24,
+        verifierUsernames: ["v"], adminUsernames: [], marketQuestion: t.marketQuestion, reviewDeadlineHours: 48, autoSettle: true,
+        market: { type: "BINARY", initialPriceBps: 5000, initialLiquidityUsdc: 10 },
+      });
+      expect(r.success, `${t.id}: ${JSON.stringify(r.error?.issues)}`).toBe(true);
+    }
   });
 });
 
@@ -374,7 +387,26 @@ describe("challenge suggestions", () => {
   });
   it("suggests wake-up goals from sleep history", () => {
     const s = suggestChallenges("wake_time", [400, 410, 395, 420]); // ~06:46 average
-    expect(s.map((x) => x.app.dailyTarget)).toEqual([420, 375]); // by 07:00, stretch 06:15
+    const by = (id: string) => s.find((x) => x.id === `wake_time:${id}`)!.app.dailyTarget;
+    expect([by("usual-week"), by("stretch-5of7"), by("early-week")]).toEqual([420, 375, 390]); // 07:00, 06:15, 06:30
+    expect(s.every((x) => x.successRule.type === "daily_completion")).toBe(true);
+  });
+  it("offers many variants: three difficulties, several time frames, streaks and k-of-n", () => {
+    const s = suggestChallenges("running_km", [3, 0, 5, 2.5, 0, 4, 3], { name: "Crew", memberCount: 12 });
+    const personal = s.filter((x) => x.scope === "personal");
+    expect(personal.length).toBeGreaterThanOrEqual(12);
+    expect(new Set(personal.map((x) => x.difficulty))).toEqual(new Set(["easy", "medium", "hard"]));
+    expect(new Set(personal.map((x) => x.durationDays))).toEqual(new Set([1, 3, 7, 14, 30]));
+    expect(s.filter((x) => x.scope === "group").length).toBeGreaterThanOrEqual(5);
+    expect(new Set(s.map((x) => x.id)).size).toBe(s.length); // ids are unique
+    // Streak odds come from the binomial: hitting 2.5 km on 4 of the last 7 days → 7 in a row is unlikely.
+    const streak = s.find((x) => x.id === "running_km:every-day-week")!;
+    expect(streak.initialPriceBps).toBe(1000);
+  });
+  it("dedupes variants that round to the same target", () => {
+    const w = suggestChallenges("workouts", []);
+    const today = w.filter((x) => x.durationDays === 1);
+    expect(today.length).toBeLessThan(3); // 0.5 workouts/day → easy and medium both round to 1
   });
 });
 
