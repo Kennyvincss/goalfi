@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { canSubmitEvidence, SuccessRuleSchema } from "@goalfi/core";
+import { appMetric, canSubmitEvidence, describeDailyTarget, meetsDailyTarget, metricSourceLabel, SuccessRuleSchema } from "@goalfi/core";
+import { readyAccounts } from "./accounts/service";
 import { z } from "zod";
 import { requireView } from "./authz";
 import { link, type Actor, type ServiceContext } from "./context";
@@ -36,8 +37,12 @@ export async function submitEvidence(ctx: ServiceContext, actor: Actor, challeng
   const input = parsed.data;
   const a = await requireView(ctx.db, challengeId, actor);
   const c = a.challenge;
+  const metric = appMetric(c.appMetric);
   if (c.verificationMethod === "CONNECTED_APP")
-    throw conflict("This challenge is verified automatically from Google Health. Your steps sync on their own, so there's nothing to upload.");
+    throw conflict(`This challenge is verified automatically${metric ? ` from ${metricSourceLabel(metric)}` : ""}. Your progress syncs on its own, so there's nothing to upload.`);
+  // "Watch or proof": people whose account syncs don't upload (no double counting).
+  if (c.verificationMethod === "HYBRID" && metric && (await readyAccounts(ctx, actor.id, metric)).length > 0)
+    throw conflict(`Your ${metricSourceLabel(metric)} account syncs automatically for this challenge, so there's nothing to upload.`);
   const participant = await ctx.db.participant.findUnique({ where: { challengeId_userId: { challengeId, userId: actor.id } } });
   if (!participant || participant.status === "WITHDRAWN") throw forbidden("Join the challenge before submitting evidence");
   const now = ctx.now();
@@ -47,6 +52,11 @@ export async function submitEvidence(ctx: ServiceContext, actor: Actor, challeng
   if ((rule.type === "individual_threshold" || rule.type === "collective_total") && input.progressValue === undefined)
     throw invalid(`Enter your progress in ${rule.unit}`);
   if (rule.type === "daily_completion" && !input.activityDate) throw invalid("Choose the day this evidence is for");
+  if (c.verificationMethod === "HYBRID" && metric && rule.type === "daily_completion" && c.appDailyTarget !== null) {
+    // Proof for a daily goal must show the day's target was met, the same bar synced data must clear.
+    if (input.progressValue === undefined || !meetsDailyTarget(metric, input.progressValue, c.appDailyTarget))
+      throw invalid(`Enter the day's ${metric.unit}: a day counts at ${describeDailyTarget(metric, c.appDailyTarget)}`);
+  }
   if (input.activityDate) {
     const d = new Date(`${input.activityDate}T00:00:00Z`);
     const startDay = new Date(c.startDate.toISOString().slice(0, 10) + "T00:00:00Z");

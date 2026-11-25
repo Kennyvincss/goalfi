@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { APP_METRICS, formatMetricValue, PROVIDER_INFO, suggestChallenges, type AppMetricId } from "@goalfi/core";
+import { APP_METRICS, formatMetricValue, metricProviders, PROVIDER_INFO, suggestChallenges, type AppMetricId } from "@goalfi/core";
 import { prisma } from "@goalfi/db";
 import { listAccounts, recentDaily, syncAccount, telegramMemberCount, type AccountsConfig } from "@goalfi/services";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +34,7 @@ export default async function ConnectedPage({ searchParams }: { searchParams: Pr
   await syncIfDue(cfg, user.id);
   const [rows, accounts] = await Promise.all([accountRows(user.id), listAccounts(ctx, user.id)]);
   const connected = new Set(accounts.filter((a) => a.status === "ACTIVE").map((a) => a.provider as string));
-  const metrics = (Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => connected.has(APP_METRICS[id].provider));
+  const metrics = (Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => metricProviders(APP_METRICS[id]).some((p) => connected.has(p)));
   const { metric: picked } = await searchParams;
   const metricId = metrics.includes(picked as AppMetricId) ? (picked as AppMetricId) : metrics[0];
 
@@ -79,7 +79,7 @@ export default async function ConnectedPage({ searchParams }: { searchParams: Pr
           <Card>
             <CardHeader>
               <CardTitle>{metric.label}: last 7 days</CardTitle>
-              <CardDescription>{metric.description}. From {PROVIDER_INFO[metric.provider].name}; devices and apps upload in batches, so today can lag behind.</CardDescription>
+              <CardDescription>{metric.description}. From {metricProviders(metric).filter((p) => connected.has(p)).map((p) => PROVIDER_INFO[p].name).join(" and ")} (the higher value counts if several record the same day); devices and apps upload in batches, so today can lag behind.</CardDescription>
             </CardHeader>
             <CardContent>
               <ol className="grid grid-cols-7 gap-1.5 text-center">

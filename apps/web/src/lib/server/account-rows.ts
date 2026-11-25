@@ -7,6 +7,8 @@ import { services } from "./services";
 
 const PRIVACY: Record<string, string> = {
   GOOGLE_HEALTH: "Read-only. GoalFi reads daily steps, distance, running distance, floors, heart-zone minutes, workouts and wake-up time recorded by your Fitbit or Pixel Watch (anything typed in by hand is ignored). In app-verified challenges you join, those daily totals are shown to other participants as evidence.",
+  WITHINGS: "Read-only. GoalFi reads daily steps and distance recorded by your Withings watch or tracker (phone-only data is ignored). In app-verified challenges you join, those daily totals are shown to other participants as evidence.",
+  OURA: "Read-only. GoalFi reads daily steps, workouts and runs, and when your main sleep ended, as recorded by your ring (workouts logged by hand are ignored). In app-verified challenges you join, those daily values are shown to other participants as evidence.",
   GITHUB: "GoalFi asks for no extra permissions and reads only your public contribution calendar. Daily counts are shown to other participants in challenges you join.",
   LICHESS: "Read-only. GoalFi reads your finished games and puzzle results. Daily counts are shown to other participants in challenges you join. No Lichess app setup needed.",
 };

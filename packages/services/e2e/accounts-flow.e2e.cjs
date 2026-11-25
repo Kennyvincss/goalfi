@@ -46,6 +46,7 @@ async function signup(name) {
   await page.goto(B + "/settings");
   ok("settings shows the connected account", await page.locator("#accounts").getByText("Connected", { exact: true }).isVisible());
   await page.screenshot({ path: path.join(OUT, "settings-accounts.png"), fullPage: true });
+  ok("settings lists Withings and Oura", (await page.locator("#accounts").getByText("Withings", { exact: true }).isVisible()) && (await page.locator("#accounts").getByText("Oura", { exact: true }).isVisible()));
   await page.goto(B + "/connected");
   ok("connected page shows synced days", await page.getByText("10,400").isVisible());
   ok("suggestions use the real history", await page.getByText("based on your last 6 complete days").isVisible());
@@ -61,6 +62,7 @@ async function signup(name) {
   await page.waitForURL(/suggest=steps%3Aevery-day-week/);
   ok("builder opens prefilled", (await page.getByLabel("Title").inputValue()).includes("steps every day for a week"));
   await page.getByRole("button", { name: "Continue" }).click(); // → goal
+  ok("three ways to check progress, incl. watch or proof", await page.getByRole("button", { name: /Watch or proof/ }).isVisible());
   ok("verification is the connected app, steps", (await page.getByLabel("What is measured").inputValue()) === "steps" && (await page.getByLabel("Steps that make a day count").isVisible()));
   await page.getByRole("button", { name: "Continue" }).click(); // → schedule
   ok("schedule uses whole days and no verifiers", (await page.getByLabel("First day").isVisible()) && (await page.getByText("No verifiers needed").isVisible()));
@@ -75,7 +77,7 @@ async function signup(name) {
   await page.getByRole("button", { name: "Confirm & publish" }).click();
   await page.waitForTimeout(1500);
   await page.reload();
-  ok("challenge says it verifies automatically", await page.getByText(/Verified automatically: Steps, synced from each participant’s Google Health account/).isVisible());
+  ok("challenge says it verifies automatically", await page.getByText(/Verified automatically: Steps, synced from each participant’s Google Health, Withings or Oura account/).isVisible());
   ok("no evidence upload form", (await page.getByText("Submit evidence").count()) === 0);
   const slug = page.url().split("/challenges/")[1];
 
@@ -113,6 +115,25 @@ async function signup(name) {
   await p2.screenshot({ path: path.join(OUT, "connected-mobile.png"), fullPage: true });
   const overflow = await p2.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   ok("no horizontal scroll on phone", !overflow);
+
+  // "Watch or proof": someone without a watch can join and gets the upload form.
+  const call = (who, p, method = "GET", body) => fetch(B + p, { method, headers: { "content-type": "application/json", cookie: who.cookie }, body: body ? JSON.stringify(body) : undefined }).then(async (r) => ({ status: r.status, data: await r.json().catch(() => null) }));
+  const day0 = new Date(); day0.setUTCHours(0, 0, 0, 0);
+  const hy = await call(walker, "/api/challenges", "POST", {
+    title: `Walk 9k or prove it ${S}`, description: "Steps from a watch, or a screenshot.", categorySlug: "fitness", rules: "Watch data or a screenshot of the day.",
+    successCriteria: "1 participant reaches 9,000 steps", successRule: { type: "individual_threshold", unit: "steps", threshold: 9000, minParticipants: 1 },
+    evidenceReq: "Screenshot of the day's steps", kind: "GROUP", visibility: "PUBLIC", recurrence: "NONE",
+    startDate: day0.toISOString(), endDate: new Date(day0.getTime() + 86400000).toISOString(), requiredApprovals: 1, disputeWindowHours: 1,
+    verifierUsernames: [walker.username], adminUsernames: [], verification: "HYBRID", app: { metric: "steps" }, autoSettle: true, reviewDeadlineHours: 24,
+    marketQuestion: "Will one of us reach 9k?", market: { type: "NONE" },
+  });
+  ok("watch-or-proof challenge created", hy.status === 201, JSON.stringify(hy.data).slice(0, 200));
+  await call(walker, `/api/challenges/${hy.data.id}/confirm`, "POST", { acceptRules: true });
+  const hj = await call(other, `/api/challenges/${hy.data.id}/join`, "POST");
+  ok("someone without a watch can join", hj.status === 201, JSON.stringify(hj.data));
+  await p2.goto(`${B}/challenges/${hy.data.slug}`);
+  ok("they get the proof upload form and a connect option", (await p2.getByRole("heading", { name: "Submit evidence" }).isVisible()) && (await p2.getByText(/Upload proof below/).isVisible()));
+  await p2.screenshot({ path: path.join(OUT, "hybrid-mobile.png"), fullPage: true });
   ok("no client-side errors", errors.length === 0, errors.join(" | "));
   await b.close();
 })();

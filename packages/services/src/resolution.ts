@@ -1,4 +1,4 @@
-import { award, evaluateResolution, resolutionAwards, SuccessRuleSchema, verifierAwards, type ResolutionReport } from "@goalfi/core";
+import { award, usesAppMetric, evaluateResolution, resolutionAwards, SuccessRuleSchema, verifierAwards, type ResolutionReport } from "@goalfi/core";
 import { z } from "zod";
 import { requireView } from "./authz";
 import { link, type Actor, type ServiceContext } from "./context";
@@ -31,7 +31,7 @@ async function gatherResolutionInput(ctx: ServiceContext, challengeId: string) {
     now: ctx.now(),
     challenge: {
       endDate: c.endDate, status: c.status, disputeWindowHours: c.disputeWindowHours, successRule: SuccessRuleSchema.parse(c.successRule),
-      dataSyncUntil: c.verificationMethod === "CONNECTED_APP" ? new Date(c.endDate.getTime() + SYNC_GRACE_HOURS * 3_600_000) : null,
+      dataSyncUntil: usesAppMetric(c.verificationMethod) ? new Date(c.endDate.getTime() + SYNC_GRACE_HOURS * 3_600_000) : null,
     },
     marketEndTs: marketUsable ? c.market!.endTs : null,
     marketStatus: marketUsable ? c.market!.status : null,

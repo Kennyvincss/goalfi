@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { APP_METRICS, CHALLENGE_TEMPLATES, PROVIDER_INFO, type AppSuggestion } from "@goalfi/core";
+import { APP_METRICS, CHALLENGE_TEMPLATES, metricSourceLabel, type AppSuggestion } from "@goalfi/core";
 import { prisma } from "@goalfi/db";
 import { SuggestionCard, TemplateCard } from "@/components/ideas/idea-card";
 import { getCurrentUser } from "@/lib/server/auth";
 import { accountsConfig } from "@/lib/server/accounts";
-import { adminCommunities, communityIdeas, personalIdeas } from "@/lib/server/ideas";
+import { availableMetrics, communitySuggestions } from "@goalfi/services";
+import { adminCommunities, personalIdeas } from "@/lib/server/ideas";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Challenge ideas" };
@@ -54,22 +55,21 @@ export default async function Ideas({ searchParams }: { searchParams: Promise<{ 
     ) : (
       groups.map((g) => (
         <section key={g.metric} className="space-y-3">
-          <h2 className="text-lg font-semibold">{APP_METRICS[g.metric].label} <span className="text-sm font-normal text-muted-foreground">· {PROVIDER_INFO[APP_METRICS[g.metric].provider].name} · {g.days ? `based on your last ${g.days} days` : "starting targets until your data syncs"}</span></h2>
+          <h2 className="text-lg font-semibold">{APP_METRICS[g.metric].label} <span className="text-sm font-normal text-muted-foreground">· {metricSourceLabel(APP_METRICS[g.metric])} · {g.days ? `based on your last ${g.days} days` : "starting targets until your data syncs"}</span></h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{g.ideas.map((s) => <SuggestionCard key={s.id} s={s} />)}</div>
         </section>
       ))
     );
   } else if (tab === "groups") {
     const communities = user ? await adminCommunities(user.id) : [];
-    const cfg = accountsConfig();
-    const providers = new Set<string>(Object.keys(cfg?.providers ?? {}));
+    const metrics = availableMetrics(accountsConfig());
     body = !user || communities.length === 0 ? (
       <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
         Group ideas appear for communities you run. <Link className="text-primary" href="/communities">Create or manage a community</Link>.
       </p>
     ) : (
       communities.map((c) => {
-        const ideas = communityIdeas(c, providers).filter(keep);
+        const ideas = communitySuggestions(c, metrics).filter(keep);
         const byMetric = new Map<string, AppSuggestion[]>();
         for (const s of ideas) byMetric.set(s.metric, [...(byMetric.get(s.metric) ?? []), s]);
         return (

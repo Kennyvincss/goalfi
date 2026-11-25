@@ -2,6 +2,11 @@ import { Bot, InlineKeyboard, type Context } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { prisma } from "@goalfi/db";
 import {
+  accountsConfigFromEnv,
+  availableMetrics,
+  ideasText,
+  isoWeek,
+  weeklyPicks,
   joinCommunityByTelegram,
   linkTelegramAccount,
   linkTelegramGroup,
@@ -23,6 +28,7 @@ const HELP = [
   "/markets: live markets and prices",
   "/leaderboard: rankings",
   "/submit: submit evidence (opens the website)",
+  "/ideas: challenge ideas for this group (admins: /ideas off or /ideas on for the weekly post)",
   "/join: join this group’s GoalFi community",
   "/help: this message",
 ].join("\n");
@@ -146,6 +152,27 @@ export function createBot(token: string, svc: ServiceContext, opts: { botInfo?: 
       ["📈 <b>Live markets</b>", ...markets.map((m) => `• <a href="${url(`/challenges/${m.challenge.slug}`)}">${esc(m.challenge.title)}</a>\n   ${priceLine(m.snapshots[0]?.yesPrice)} · ${timeLeft(m.challenge.endDate)}`)].join("\n"),
       { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: new InlineKeyboard().url("Trade on GoalFi", url("/markets")) },
     );
+  });
+
+  bot.command("ideas", async (ctx) => {
+    if (!isGroup(ctx)) return void (await ctx.reply("Challenge ideas built from your own data and ideas anyone can do:", { reply_markup: new InlineKeyboard().url("Browse ideas", url("/ideas")) }));
+    const community = await communityOf(ctx);
+    if (!community) return void (await ctx.reply("This group isn’t connected to GoalFi yet.", { reply_markup: new InlineKeyboard().url("Connect", url("/telegram")) }));
+    const arg = (ctx.match ?? "").toString().trim().toLowerCase();
+    if (arg === "on" || arg === "off") {
+      const member = ctx.from ? await ctx.getChatMember(ctx.from.id).catch(() => null) : null;
+      if (!member || !["creator", "administrator"].includes(member.status)) return void (await ctx.reply("Only group admins can change this."));
+      await prisma.community.update({ where: { id: community.id }, data: { weeklyIdeas: arg === "on" } });
+      return void (await ctx.reply(arg === "on" ? "Weekly challenge ideas are on. They’re posted on Mondays." : "Weekly challenge ideas are off. Use /ideas any time."));
+    }
+    const members = await prisma.communityMember.count({ where: { communityId: community.id } });
+    const cfg = accountsConfigFromEnv(svc.appUrl, process.env);
+    const telegramMembers = await ctx.getChatMemberCount().catch(() => null);
+    const picks = weeklyPicks(svc, { id: community.id, name: community.name, memberCount: members, telegramMembers }, availableMetrics(cfg), isoWeek(svc.now()));
+    const kb = new InlineKeyboard();
+    picks.forEach((p, i) => kb.url(`▶ Create idea ${i + 1}`, p.url).row());
+    kb.url("More ideas", url("/ideas?tab=groups"));
+    await ctx.reply(esc(ideasText(community.name, picks)), { parse_mode: "HTML", reply_markup: kb, link_preview_options: { is_disabled: true } });
   });
 
   bot.command("leaderboard", async (ctx) => {

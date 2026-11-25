@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   appMetric,
+  ACCOUNT_PROVIDERS,
   civilDayInWindow,
+  combineDaily,
+  metricProviders,
+  metricSourceLabel,
   describeDailyTarget,
   establishedMember,
   MAX_EVENTS_PER_OPPONENT_PER_DAY,
@@ -37,11 +41,20 @@ export function listAccounts(ctx: ServiceContext, userId: string) {
   return ctx.db.connectedAccount.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
 }
 
-/** Whether the user's account can feed this metric (connected, healthy, with the needed permission). */
-export function accountReadyFor(account: { status: string; scope: string } | null, metric: AppMetricDef): boolean {
+/** Whether one account can feed this metric (connected, healthy, with the needed permission). */
+export function accountReadyFor(account: { status: string; scope: string; provider?: string } | null, metric: AppMetricDef): boolean {
   if (!account || account.status !== "ACTIVE") return false;
-  if (metric.id === "wake_time" && !account.scope.includes(GOOGLE_SLEEP_SCOPE)) return false;
+  if (account.provider && !metricProviders(metric).includes(account.provider as AccountProviderId)) return false;
+  // Google asks for sleep separately; other sources include it with their activity access.
+  if (metric.id === "wake_time" && (account.provider ?? "GOOGLE_HEALTH") === "GOOGLE_HEALTH" && !account.scope.includes(GOOGLE_SLEEP_SCOPE)) return false;
   return true;
+}
+
+/** The user's accounts that can supply this metric right now (any of its sources). */
+export async function readyAccounts(ctx: ServiceContext, userId: string, metric: AppMetricDef) {
+  const providers = metricProviders(metric).filter((p): p is AccountProviderId => (ACCOUNT_PROVIDERS as readonly string[]).includes(p));
+  const accounts = await ctx.db.connectedAccount.findMany({ where: { userId, provider: { in: providers } } });
+  return accounts.filter((a) => accountReadyFor(a, metric));
 }
 
 function client(cfg: AccountsConfig, provider: AccountProviderId) {
@@ -183,31 +196,42 @@ export async function recentDaily(ctx: ServiceContext, userId: string, metricId:
     return [...by].sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, value }));
   }
   const rows = await ctx.db.activityDaily.findMany({ where: { userId, metric: metric.id, date: { gte: since } }, orderBy: { date: "asc" } });
-  return rows.map((r) => ({ date: isoDay(r.date), value: r.value }));
+  return [...byDay(metric, rows)].map(([date, v]) => ({ date, value: v.value }));
+}
+
+/** One value per local day across sources: the best one counts, never the sum. */
+function byDay(metric: AppMetricDef, rows: { date: Date; value: number; provider: string }[]): Map<string, { value: number; provider: string }> {
+  const out = new Map<string, { value: number; provider: string }>();
+  for (const r of rows) {
+    const d = isoDay(r.date);
+    const cur = out.get(d);
+    if (!cur || combineDaily(metric, [cur.value, r.value]) !== cur.value) out.set(d, { value: r.value, provider: r.provider });
+  }
+  return out;
 }
 
 type ConnectedChallenge = Prisma.ChallengeGetPayload<{ include: { participants: true } }>;
 
-const SOURCE_NAME: Record<string, string> = { GOOGLE_HEALTH: "Google Health", GITHUB: "GitHub", LICHESS: "Lichess", GOALFI: "GoalFi", TELEGRAM: "Telegram" };
+const name = (p: string) => PROVIDER_INFO[p as keyof typeof PROVIDER_INFO]?.name ?? p;
 
-function describe(metric: AppMetricDef, value: number, date: string): string {
-  if (metric.id === "wake_time") return `Woke up at ${formatMetricValue(metric, value)} on ${date} (synced from Google Health)`;
-  if (metric.source === "level") return `${formatMetricValue(metric, value)} ${metric.unit} on ${date} (counted by ${SOURCE_NAME[metric.provider]})`;
-  return `${formatMetricValue(metric, value)} ${metric.unit} on ${date} (synced from ${SOURCE_NAME[metric.provider]})`;
+function describe(metric: AppMetricDef, value: number, date: string, source: string): string {
+  if (metric.id === "wake_time") return `Woke up at ${formatMetricValue(metric, value)} on ${date} (synced from ${name(source)})`;
+  if (metric.source === "level") return `${formatMetricValue(metric, value)} ${metric.unit} on ${date} (counted by ${name(source)})`;
+  return `${formatMetricValue(metric, value)} ${metric.unit} on ${date} (synced from ${name(source)})`;
 }
 
 /** Evidence is immutable: a changed value adds a row that supersedes the current one. */
 async function upsertEvidence(
   ctx: ServiceContext, c: ConnectedChallenge, metric: AppMetricDef, participantId: string, userId: string,
-  date: string, value: number, current: { id: string; progressValue: unknown } | null,
+  date: string, value: number, current: { id: string; progressValue: unknown } | null, source: string = metric.provider,
 ): Promise<number> {
   if (current && Number(current.progressValue) === value) return 0;
   await ctx.db.evidence.create({
     data: {
       challengeId: c.id, participantId, userId,
-      description: describe(metric, value, date),
+      description: describe(metric, value, date, source),
       links: [], progressValue: value, activityDate: new Date(`${date}T00:00:00Z`),
-      contentHash: createHash("sha256").update(`${metric.provider}:${metric.id}:${userId}:${date}:${value}`).digest("hex"),
+      contentHash: createHash("sha256").update(`${source}:${metric.id}:${userId}:${date}:${value}`).digest("hex"),
       status: "APPROVED", decidedAt: ctx.now(), autoDecision: CONNECTED_APP_DECISION,
       supersedesId: current?.id ?? null,
     },
@@ -215,8 +239,8 @@ async function upsertEvidence(
   return 1;
 }
 
-/** Per-day values for one participant inside the challenge window: [local date, value]. */
-async function windowValues(ctx: ServiceContext, c: ConnectedChallenge, metric: AppMetricDef, userId: string): Promise<[string, number][]> {
+/** Per-day values for one participant inside the challenge window: [local date, value, source]. */
+async function windowValues(ctx: ServiceContext, c: ConnectedChallenge, metric: AppMetricDef, userId: string): Promise<[string, number, string][]> {
   if (metric.source === "daily") {
     const rows = await ctx.db.activityDaily.findMany({
       where: {
@@ -224,8 +248,8 @@ async function windowValues(ctx: ServiceContext, c: ConnectedChallenge, metric: 
         date: { gte: new Date(`${isoDay(new Date(c.startDate.getTime() - DAY))}T00:00:00Z`), lte: new Date(`${isoDay(new Date(c.endDate.getTime() + DAY))}T00:00:00Z`) },
       },
     });
-    // Local days whose midday is inside the challenge window.
-    return rows.filter((d) => civilDayInWindow(isoDay(d.date), c.startDate, c.endDate)).map((d) => [isoDay(d.date), d.value]);
+    // Local days whose midday is inside the challenge window; one value per day across sources.
+    return [...byDay(metric, rows.filter((d) => civilDayInWindow(isoDay(d.date), c.startDate, c.endDate)))].map(([d, v]) => [d, v.value, v.provider]);
   }
   // Events: challenge day k = [start + k·24h, start + (k+1)·24h). The builder starts app-verified
   // challenges at local midnight, so these are the participant's local days.
@@ -243,20 +267,20 @@ async function windowValues(ctx: ServiceContext, c: ConnectedChallenge, metric: 
     }
     out.set(k, (out.get(k) ?? 0) + e.value);
   }
-  return [...out].map(([k, v]) => [isoDay(new Date(c.startDate.getTime() + k * DAY + 12 * 3_600_000)), v]);
+  return [...out].map(([k, v]) => [isoDay(new Date(c.startDate.getTime() + k * DAY + 12 * 3_600_000)), v, metric.provider]);
 }
 
 /** Turn synced values into approved evidence for one participant. */
 async function materialize(ctx: ServiceContext, c: ConnectedChallenge, metric: AppMetricDef, userId: string, participantId: string): Promise<number> {
   const rule = SuccessRuleSchema.parse(c.successRule);
   let created = 0;
-  for (const [date, value] of await windowValues(ctx, c, metric, userId)) {
+  for (const [date, value, source] of await windowValues(ctx, c, metric, userId)) {
     const qualifies = rule.type === "daily_completion" ? meetsDailyTarget(metric, value, c.appDailyTarget ?? NaN) : value > 0;
     if (!qualifies) continue;
     const current = await ctx.db.evidence.findFirst({
       where: { challengeId: c.id, userId, activityDate: new Date(`${date}T00:00:00Z`), autoDecision: CONNECTED_APP_DECISION, supersededBy: null },
     });
-    created += await upsertEvidence(ctx, c, metric, participantId, userId, date, value, current);
+    created += await upsertEvidence(ctx, c, metric, participantId, userId, date, value, current, source);
   }
   return created;
 }
@@ -288,19 +312,60 @@ async function materializeLevel(ctx: ServiceContext, c: ConnectedChallenge, metr
   const p = c.participants.find((x) => x.userId === c.creatorId)
     ?? (await ctx.db.participant.upsert({ where: { challengeId_userId: { challengeId: c.id, userId: c.creatorId } }, update: {}, create: { challengeId: c.id, userId: c.creatorId } }));
   const current = await ctx.db.evidence.findFirst({ where: { challengeId: c.id, userId: c.creatorId, autoDecision: CONNECTED_APP_DECISION, supersededBy: null } });
-  return upsertEvidence(ctx, c, metric, p.id, c.creatorId, isoDay(ctx.now()), value, current);
+  return upsertEvidence(ctx, c, metric, p.id, c.creatorId, isoDay(ctx.now()), value, current, metric.provider);
+}
+
+/** Hours before a deadline when participants who are short get one reminder. */
+export const SHORT_REMINDER_HOURS = 3;
+
+/**
+ * "Running out of time and you're short": one reminder per challenge (totals) or per challenge day
+ * (daily goals), SHORT_REMINDER_HOURS before the deadline, with how much is left to go.
+ */
+async function shortReminder(ctx: ServiceContext, c: ConnectedChallenge, metric: AppMetricDef, userId: string): Promise<boolean> {
+  if (metric.better !== "higher" || metric.source === "level") return false;
+  const rule = SuccessRuleSchema.parse(c.successRule);
+  const now = ctx.now().getTime();
+  const fmt = (v: number) => formatMetricValue(metric, v);
+  const values = await windowValues(ctx, c, metric, userId);
+  let deadline: number, have: number, need: number, dedupKey: string, scope: string;
+  if (rule.type === "individual_threshold") {
+    deadline = c.endDate.getTime();
+    have = values.reduce((a, [, v]) => a + v, 0);
+    need = rule.threshold;
+    dedupKey = `SHORT:${c.id}:${userId}`;
+    scope = `in “${c.title}”`;
+  } else if (rule.type === "daily_completion" && c.appDailyTarget) {
+    const k = Math.floor((now - c.startDate.getTime()) / DAY);
+    deadline = Math.min(c.startDate.getTime() + (k + 1) * DAY, c.endDate.getTime());
+    const day = isoDay(new Date(c.startDate.getTime() + k * DAY + 12 * 3_600_000));
+    have = values.find(([d]) => d === day)?.[1] ?? 0;
+    need = c.appDailyTarget;
+    dedupKey = `SHORT:${c.id}:${userId}:${k}`;
+    scope = `today in “${c.title}”`;
+  } else return false;
+  const left = deadline - now;
+  if (left <= 0 || left > SHORT_REMINDER_HOURS * 3_600_000 || have >= need) return false;
+  const hours = Math.max(1, Math.round(left / 3_600_000));
+  const sent = await notify(ctx.db, [userId], {
+    type: "CHALLENGE_ENDING",
+    message: `⏳ About ${hours}h left ${scope}: you’re at ${fmt(have)} of ${fmt(need)} ${metric.unit}, ${fmt(Math.max(0, need - have))} to go.`,
+    link: link(ctx, `/challenges/${c.slug}`),
+    dedupKey,
+  });
+  return sent > 0;
 }
 
 /**
- * Scheduler step: for app-verified challenges that are running (or ended less than
- * SYNC_GRACE_HOURS ago), sync each participant's account and update their evidence.
+ * Scheduler step: for app-verified and "watch or proof" challenges that are running (or ended less
+ * than SYNC_GRACE_HOURS ago), sync each participant's accounts and update their evidence.
  */
 export async function accountsTick(ctx: ServiceContext, cfg: AccountsConfig | null, f: Fetch = fetch) {
-  const out = { challenges: 0, synced: 0, evidence: 0, notConnected: 0 };
+  const out = { challenges: 0, synced: 0, evidence: 0, notConnected: 0, reminders: 0 };
   const now = ctx.now();
   const challenges = await ctx.db.challenge.findMany({
     where: {
-      verificationMethod: "CONNECTED_APP",
+      verificationMethod: { in: ["CONNECTED_APP", "HYBRID"] },
       status: { in: ["ACTIVE", "IN_REVIEW"] },
       startDate: { lte: now },
       endDate: { gte: new Date(now.getTime() - SYNC_GRACE_HOURS * 3_600_000) },
@@ -320,27 +385,32 @@ export async function accountsTick(ctx: ServiceContext, cfg: AccountsConfig | nu
       continue;
     }
     if (!cfg) continue;
-    const provider = metric.provider as AccountProviderId;
+    const hybrid = c.verificationMethod === "HYBRID";
     for (const p of c.participants) {
-      const key = `${p.userId}:${provider}`;
-      if (!synced.has(key)) {
+      const ready = await readyAccounts(ctx, p.userId, metric);
+      if (ready.length === 0) {
+        out.notConnected++;
+        await notify(ctx.db, [p.userId], {
+          type: "MARKET_UPDATE",
+          message: hybrid
+            ? `“${c.title}”: connect ${metricSourceLabel(metric)} so your progress counts automatically, or upload proof on the challenge page.`
+            : `Connect ${metricSourceLabel(metric)} so your progress counts in “${c.title}”.`,
+          link: link(ctx, hybrid ? `/challenges/${c.slug}` : "/settings#accounts"),
+          dedupKey: `CONNECT_ACCOUNT:${c.id}:${p.userId}`,
+        });
+        continue; // nothing to sync; with "watch or proof" their uploads are reviewed by verifiers
+      }
+      for (const a of ready) {
+        const key = `${p.userId}:${a.provider}`;
+        if (synced.has(key)) continue;
         synced.add(key);
-        const acct = await getAccount(ctx, p.userId, provider);
-        if (!accountReadyFor(acct, metric)) {
-          out.notConnected++;
-          await notify(ctx.db, [p.userId], {
-            type: "MARKET_UPDATE",
-            message: `Connect ${PROVIDER_INFO[provider].name} so your progress counts in “${c.title}”.`,
-            link: link(ctx, "/settings#accounts"),
-            dedupKey: `CONNECT_ACCOUNT:${c.id}:${p.userId}`,
-          });
-        }
-        // The widest window this user needs for this provider (max 31 days back).
-        const mine = challenges.filter((x) => appMetric(x.appMetric)?.provider === provider && x.participants.some((q) => q.userId === p.userId));
+        // The widest window this user needs (max 31 days back).
+        const mine = challenges.filter((x) => x.participants.some((q) => q.userId === p.userId));
         const start = isoDay(new Date(Math.max(Math.min(...mine.map((x) => x.startDate.getTime())) - DAY, now.getTime() - 31 * DAY)));
-        out.synced += await syncAccount(ctx, cfg, p.userId, provider, start, addDays(isoDay(now), 1), f);
+        out.synced += await syncAccount(ctx, cfg, p.userId, a.provider, start, addDays(isoDay(now), 1), f);
       }
       out.evidence += await materialize(ctx, c, metric, p.userId, p.id);
+      if (now < c.endDate && (await shortReminder(ctx, c, metric, p.userId))) out.reminders++;
     }
   }
   return out;
@@ -350,6 +420,6 @@ export async function accountsTick(ctx: ServiceContext, cfg: AccountsConfig | nu
 export function measuredBy(metricId: string | null, dailyTarget: number | null): string | null {
   const metric = appMetric(metricId);
   if (!metric) return null;
-  const who = metric.source === "level" ? `counted by ${SOURCE_NAME[metric.provider]}` : `synced from each participant’s ${SOURCE_NAME[metric.provider]} account`;
+  const who = metric.source === "level" ? `counted by ${name(metric.provider)}` : `synced from each participant’s ${metricSourceLabel(metric)} account`;
   return `${metric.label}, ${who}${dailyTarget ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, dailyTarget)})` : ""}`;
 }

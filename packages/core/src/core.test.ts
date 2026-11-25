@@ -421,3 +421,29 @@ describe("civilDayInWindow", () => {
     }
   });
 });
+
+describe("several sources per metric and watch-or-proof rules", () => {
+  it("lists sources and combines a day across them (best value, never the sum)", async () => {
+    const { APP_METRICS: M, metricProviders, metricSourceLabel, combineDaily } = await import("./index");
+    expect(metricProviders(M.steps)).toEqual(["GOOGLE_HEALTH", "WITHINGS", "OURA"]);
+    expect(metricSourceLabel(M.steps)).toBe("Google Health, Withings or Oura");
+    expect(metricSourceLabel(M.github_contributions)).toBe("GitHub");
+    expect(combineDaily(M.steps, [7000, 9000])).toBe(9000);
+    expect(combineDaily(M.wake_time, [400, 380])).toBe(380);
+  });
+  it("watch or proof needs verifiers and a review deadline for auto-settle, and a provable personal metric", async () => {
+    const base = {
+      title: "Walk 10k", description: "Ten thousand steps today.", categorySlug: "fitness", rules: "Steps or proof count.",
+      successCriteria: "10,000 steps", evidenceReq: "Screenshot", kind: "PERSONAL", visibility: "PUBLIC", recurrence: "NONE",
+      startDate: new Date(Date.now() + 3_600_000), endDate: new Date(Date.now() + 86_400_000), requiredApprovals: 1, disputeWindowHours: 24,
+      verifierUsernames: ["v"], adminUsernames: [], marketQuestion: "10k?", market: { type: "NONE" },
+      verification: "HYBRID", app: { metric: "steps" }, autoSettle: true, reviewDeadlineHours: 24,
+      successRule: { type: "individual_threshold", unit: "steps", threshold: 10000, minParticipants: 1 },
+    };
+    expect(CreateChallengeSchema.safeParse(base).success).toBe(true);
+    expect(CreateChallengeSchema.safeParse({ ...base, verifierUsernames: [] }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...base, reviewDeadlineHours: undefined }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...base, app: { metric: "community_members" }, communityId: "c", successRule: { ...base.successRule, unit: "members" } }).success).toBe(false);
+    expect(CreateChallengeSchema.safeParse({ ...base, app: { metric: "wake_time", dailyTarget: 400 }, successRule: { type: "daily_completion", requiredDays: 2, minParticipants: 1 } }).success).toBe(false);
+  });
+});

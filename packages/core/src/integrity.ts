@@ -3,7 +3,7 @@
  * much a group can gain by manipulating it: no betting against yourself, market size limits that
  * grow with trust, minimum account age, and anti-farming rules for synced data.
  */
-import { appMetric } from "./app-metrics";
+import { appMetric, usesAppMetric } from "./app-metrics";
 
 const DAY = 86_400_000;
 
@@ -30,7 +30,7 @@ export function establishedMember(
 
 /** Why a challenge's outcome is easier to manipulate, or null. */
 export function easyToGameReason(c: { verificationMethod: string; appMetric: string | null }): string | null {
-  return c.verificationMethod === "CONNECTED_APP" ? (appMetric(c.appMetric)?.easyToGame ?? null) : null;
+  return usesAppMetric(c.verificationMethod) ? (appMetric(c.appMetric)?.easyToGame ?? null) : null;
 }
 
 export interface MarketLimits {
