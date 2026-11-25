@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { APP_METRICS, formatMetricValue, PROVIDER_INFO, suggestChallenges, type AppMetricId, type AppSuggestion } from "@goalfi/core";
+import { APP_METRICS, formatMetricValue, PROVIDER_INFO, suggestChallenges, type AppMetricId } from "@goalfi/core";
 import { prisma } from "@goalfi/db";
 import { listAccounts, recentDaily, syncAccount, telegramMemberCount, type AccountsConfig } from "@goalfi/services";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AccountConnect } from "@/components/accounts/account-connect";
+import { SuggestionCard } from "@/components/ideas/idea-card";
 import { accountRows } from "@/lib/server/account-rows";
 import { getCurrentUser } from "@/lib/server/auth";
 import { accountsConfig } from "@/lib/server/accounts";
@@ -18,28 +17,6 @@ export const dynamic = "force-dynamic";
 
 const DAY = 86_400_000;
 const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10);
-
-function SuggestionCard({ s, communityId }: { s: AppSuggestion; communityId?: string }) {
-  const m = APP_METRICS[s.metric];
-  const q = new URLSearchParams({ suggest: s.id, ...(communityId ? { community: communityId } : {}) });
-  return (
-    <Card className="flex flex-col">
-      <CardHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="muted">{s.durationDays === 1 ? "Today" : `${s.durationDays} days`}</Badge>
-          <Badge variant="muted">Verified by {PROVIDER_INFO[m.provider].name}</Badge>
-          {m.easyToGame && <Badge variant="outline" className="border-warning text-warning" title={m.easyToGame}>Easier to game</Badge>}
-        </div>
-        <CardTitle className="text-base">{s.title}</CardTitle>
-        <CardDescription>{s.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="mt-auto space-y-3 text-sm">
-        <p className="text-muted-foreground">Market: “{s.marketQuestion}” · suggested opening YES price {s.initialPriceBps / 100}%</p>
-        <Button asChild size="sm"><Link href={`/challenges/new?${q}`}>Create this challenge</Link></Button>
-      </CardContent>
-    </Card>
-  );
-}
 
 async function syncIfDue(cfg: AccountsConfig | null, userId: string) {
   if (!cfg) return;
@@ -118,13 +95,16 @@ export default async function ConnectedPage({ searchParams }: { searchParams: Pr
               </ol>
             </CardContent>
           </Card>
-          <h2 className="text-xl font-semibold">Suggested for you</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xl font-semibold">Suggested for you</h2>
+            <Link href="/ideas" className="text-sm text-primary underline-offset-4 hover:underline">All ideas →</Link>
+          </div>
           <p className="text-sm text-muted-foreground">
             {complete.length > 0
               ? `Targets are based on your last ${complete.length} complete day${complete.length === 1 ? "" : "s"}. The opening price reflects how often you’ve hit each target.`
               : "No complete days synced yet, so these start from typical values and adapt once your data syncs."}
           </p>
-          <div className="grid gap-4 md:grid-cols-3">{personal.map((s) => <SuggestionCard key={s.id} s={s} />)}</div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{personal.map((s) => <SuggestionCard key={s.id} s={s} />)}</div>
         </section>
       )}
 

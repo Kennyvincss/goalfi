@@ -121,6 +121,28 @@ function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean): FormSt
   };
 }
 
+function fromTemplate(t: ChallengeTemplate, marketsAvailable: boolean): FormState {
+  const base = initialState();
+  const start = new Date(base.startDate);
+  const r = t.successRule;
+  return {
+    ...base,
+    templateId: t.id, title: t.title, description: t.description, categorySlug: t.category, rules: t.rules,
+    successCriteria: t.successCriteria, evidenceReq: t.evidenceReq, recurrence: t.recurrence, marketQuestion: t.marketQuestion,
+    // Exactly the template's length from now (minutes are truncated, so 30-day ideas stay within the 30-day market limit).
+    endDate: toLocalInput(new Date(start.getTime() + t.durationDays * 86_400_000)),
+    ruleType: r.type,
+    unit: "unit" in r ? r.unit : base.unit,
+    threshold: r.type === "individual_threshold" ? r.threshold : base.threshold,
+    target: r.type === "collective_total" ? r.target : base.target,
+    requiredDays: r.type === "daily_completion" ? r.requiredDays : base.requiredDays,
+    minParticipants: r.type === "milestone" ? r.minCompleters : "minParticipants" in r ? r.minParticipants : 1,
+    marketType: marketsAvailable ? "BINARY" : "NONE",
+  };
+}
+
+const DIFFICULTY_LABEL = { easy: "Easy", medium: "Medium", hard: "Hard" } as const;
+
 const STEPS = ["Template", "Basics", "Goal & evidence", "Schedule & verification", "Market", "Review"] as const;
 
 /** Which builder step owns each field (server validation keys use the same names). */
@@ -190,12 +212,16 @@ function validateStep(step: number, f: FormState, verifierCount: number): Errors
 }
 
 export function ChallengeBuilder({
-  templates, categories, communities, collateralSymbol, marketsAvailable, apps, suggestion, liquidityCaps,
+  templates, categories, communities, collateralSymbol, marketsAvailable, apps, suggestion, liquidityCaps, initialTemplateId, picks = [],
 }: {
   /** Per provider: configured on this server, and connected by this user. */
   apps: Record<string, { available: boolean; connected: boolean; telegram?: boolean }>;
   /** Max opening liquidity for this creator; null = no limit (platform admin). */
   liquidityCaps: { standard: number; easy: number } | null;
+  /** Open with this template already applied (from the Ideas page). */
+  initialTemplateId?: string | null;
+  /** Suggestions from the creator's own connected data, shown first on the template step. */
+  picks?: BuilderSuggestion[];
   suggestion: BuilderSuggestion | null;
   templates: ChallengeTemplate[];
   categories: { slug: string; name: string }[];
@@ -204,8 +230,13 @@ export function ChallengeBuilder({
   marketsAvailable: boolean;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState(suggestion ? 1 : 0);
-  const [f, setF] = useState<FormState>(() => (suggestion ? fromSuggestion(suggestion, marketsAvailable) : { ...initialState(), marketType: marketsAvailable ? "BINARY" : "NONE" }));
+  const initialTemplate = initialTemplateId ? templates.find((t) => t.id === initialTemplateId) ?? null : null;
+  const [step, setStep] = useState(suggestion || initialTemplate ? 1 : 0);
+  const [f, setF] = useState<FormState>(() =>
+    suggestion ? fromSuggestion(suggestion, marketsAvailable)
+    : initialTemplate ? fromTemplate(initialTemplate, marketsAvailable)
+    : { ...initialState(), marketType: marketsAvailable ? "BINARY" : "NONE" });
+  const [ideaCategory, setIdeaCategory] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, string[]>>({});
   const [stepErrors, setStepErrors] = useState<Errors>({});
@@ -242,23 +273,7 @@ export function ChallengeBuilder({
   }
 
   function applyTemplate(t: ChallengeTemplate | null) {
-    const base = initialState();
-    if (!t) return setF({ ...base, marketType: marketsAvailable ? "BINARY" : "NONE" });
-    const start = new Date(base.startDate);
-    const r = t.successRule;
-    setF({
-      ...base,
-      templateId: t.id, title: t.title, description: t.description, categorySlug: t.category, rules: t.rules,
-      successCriteria: t.successCriteria, evidenceReq: t.evidenceReq, recurrence: t.recurrence, marketQuestion: t.marketQuestion,
-      endDate: toLocalInput(new Date(Math.ceil((start.getTime() + t.durationDays * 86_400_000) / 3_600_000) * 3_600_000)),
-      ruleType: r.type,
-      unit: "unit" in r ? r.unit : base.unit,
-      threshold: r.type === "individual_threshold" ? r.threshold : base.threshold,
-      target: r.type === "collective_total" ? r.target : base.target,
-      requiredDays: r.type === "daily_completion" ? r.requiredDays : base.requiredDays,
-      minParticipants: r.type === "milestone" ? r.minCompleters : "minParticipants" in r ? r.minParticipants : 1,
-      marketType: marketsAvailable ? "BINARY" : "NONE",
-    });
+    setF(t ? fromTemplate(t, marketsAvailable) : { ...initialState(), marketType: marketsAvailable ? "BINARY" : "NONE" });
   }
 
   const successRule = useMemo(() => {
@@ -360,15 +375,41 @@ export function ChallengeBuilder({
                 Connect Google Health, GitHub or Lichess and get challenges suggested from your real activity, or grow a community: no verifiers needed.
               </Link>
             )}
+            {picks.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Suggested from your data</h3>
+                  <Link href="/ideas" className="text-xs text-primary underline-offset-4 hover:underline">See all ideas</Link>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {picks.map((s) => (
+                    <button key={s.id} onClick={() => { setF(fromSuggestion(s, marketsAvailable)); setStep(1); }} className="rounded-lg border border-primary/30 p-4 text-left hover:border-primary">
+                      <div className="flex items-center justify-between gap-2"><span className="font-medium">{s.title}</span><Badge variant="muted">{s.durationDays === 1 ? "Today" : `${s.durationDays}d`}</Badge></div>
+                      <div className="mt-1 text-sm text-muted-foreground">{s.description}</div>
+                      <div className="mt-2 text-xs text-muted-foreground">{DIFFICULTY_LABEL[s.difficulty]} · verifies itself · opens at {s.initialPriceBps / 100}% YES</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2" aria-label="Filter ideas by category">
+              {[{ slug: "all", name: "All" }, ...categories].filter((c) => c.slug === "all" || templates.some((t) => t.category === c.slug)).map((c) => (
+                <button key={c.slug} type="button" onClick={() => setIdeaCategory(c.slug)} aria-pressed={ideaCategory === c.slug}
+                  className={cn("rounded-full border px-3 py-1 text-sm", ideaCategory === c.slug ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <button onClick={() => { applyTemplate(null); setStep(1); }} className="rounded-lg border border-dashed p-4 text-left hover:border-primary">
                 <div className="font-medium">Blank challenge</div>
                 <div className="text-sm text-muted-foreground">Write everything yourself.</div>
               </button>
-              {templates.map((t) => (
+              {templates.filter((t) => ideaCategory === "all" || t.category === ideaCategory).map((t) => (
                 <button key={t.id} onClick={() => { applyTemplate(t); setStep(1); }} className={cn("rounded-lg border p-4 text-left hover:border-primary", f.templateId === t.id && "border-primary")}>
                   <div className="flex items-center justify-between gap-2"><span className="font-medium">{t.title}</span><Badge variant="muted">{t.durationDays}d</Badge></div>
                   <div className="mt-1 text-sm text-muted-foreground">{t.description}</div>
+                  {t.difficulty && <div className="mt-2 text-xs text-muted-foreground">{DIFFICULTY_LABEL[t.difficulty]} · human-verified</div>}
                 </button>
               ))}
             </div>
