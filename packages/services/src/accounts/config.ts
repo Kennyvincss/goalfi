@@ -3,6 +3,8 @@ import { githubProvider } from "./github";
 import { googleHealthProvider } from "./google-health";
 import type { ProviderClient } from "./http";
 import { lichessProvider } from "./lichess";
+import { ouraProvider } from "./oura";
+import { withingsProvider } from "./withings";
 
 export interface AccountsConfig {
   /** Encrypts provider tokens at rest. */
@@ -11,9 +13,9 @@ export interface AccountsConfig {
   telegram: { botToken: string; apiRoot?: string } | null;
 }
 
-export const callbackPath = (p: AccountProviderId) => `/api/accounts/${p === "GOOGLE_HEALTH" ? "google" : p.toLowerCase()}/callback`;
+export const callbackPath = (p: AccountProviderId) => `/api/accounts/${providerSlug(p)}/callback`;
 export const providerFromSlug = (slug: string): AccountProviderId | null =>
-  ({ google: "GOOGLE_HEALTH", github: "GITHUB", lichess: "LICHESS" } as const)[slug as "google"] ?? null;
+  ({ google: "GOOGLE_HEALTH", github: "GITHUB", lichess: "LICHESS", withings: "WITHINGS", oura: "OURA" } as const)[slug as "google"] ?? null;
 export const providerSlug = (p: AccountProviderId) => (p === "GOOGLE_HEALTH" ? "google" : p.toLowerCase());
 
 /**
@@ -29,6 +31,10 @@ export function accountsConfigFromEnv(appUrl: string, env: Record<string, string
   if (gid && gsecret) providers.GOOGLE_HEALTH = googleHealthProvider({ clientId: gid, clientSecret: gsecret, redirectUri: url("GOOGLE_HEALTH") });
   const hid = env.GITHUB_CLIENT_ID?.trim(), hsecret = env.GITHUB_CLIENT_SECRET?.trim();
   if (hid && hsecret) providers.GITHUB = githubProvider({ clientId: hid, clientSecret: hsecret, redirectUri: url("GITHUB") });
+  const wid = env.WITHINGS_CLIENT_ID?.trim(), wsecret = env.WITHINGS_CLIENT_SECRET?.trim();
+  if (wid && wsecret) providers.WITHINGS = withingsProvider({ clientId: wid, clientSecret: wsecret, redirectUri: url("WITHINGS") });
+  const oid = env.OURA_CLIENT_ID?.trim(), osecret = env.OURA_CLIENT_SECRET?.trim();
+  if (oid && osecret) providers.OURA = ouraProvider({ clientId: oid, clientSecret: osecret, redirectUri: url("OURA") });
   const bot = env.TELEGRAM_BOT_TOKEN?.trim();
   return { tokenKey, providers, telegram: bot ? { botToken: bot, apiRoot: env.TELEGRAM_API_ROOT?.trim() || undefined } : null };
 }

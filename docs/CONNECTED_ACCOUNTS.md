@@ -14,11 +14,21 @@ metric is only listed here if it has an official API, the data provably belongs 
 | `heart_zone_minutes` | Google Health | `active-zone-minutes` rollup → `sumInFatBurnHeartZone + sumInCardioHeartZone + sumInPeakHeartZone` | per local day |
 | `workouts` | Google Health | `dataTypes/exercise/dataPoints` (list, filter `exercise.interval.civil_start_time`) → sessions with `activeDuration` ≥ 10 min | per local day |
 | `wake_time` | Google Health (sleep scope) | `dataTypes/sleep/dataPoints` (filter `sleep.interval.civil_end_time`) → main sleep's `interval.civilEndTime`; naps ignored | per local day, lower is better |
+| `steps`, `distance_km` | Withings | `GET wbsapi.withings.net/v2/measure?action=getactivity` → `body.activities[]` `{ date, steps, distance (m), is_tracker }`; tracker data only | per local day |
+| `steps`, `workouts`, `running_km`, `wake_time` | Oura | `GET api.ouraring.com/v2/usercollection/{daily_activity, workout, sleep}` → `{ day, steps }`, `{ activity, distance (m), source, start/end_datetime }` (source `manual` ignored), `{ type: long_sleep, bedtime_end }` | per local day |
 | `github_contributions` | GitHub | GraphQL `viewer.contributionsCollection(from,to).contributionCalendar.weeks[].contributionDays[]{date, contributionCount}` | per calendar day |
 | `lichess_games` | Lichess | `GET /api/games/user/{id}` (ndjson) → games whose `status` isn't created/started/aborted/noStart, at `lastMoveAt` | events per challenge day |
 | `lichess_puzzles` | Lichess | `GET /api/puzzle/activity` (ndjson, scope `puzzle:read`) → entries with `win: true`, at `date` | events per challenge day |
 | `community_members` | GoalFi | members of the challenge's GoalFi community | community level |
 | `telegram_members` | Telegram | Bot API `getChatMemberCount` for the community's linked group | community level |
+
+Several sources can feed one metric. If a participant connects more than one, each day counts once with the
+higher value (the lower one for wake-up time), never the sum.
+
+Withings and Oura fields were checked against widely used open-source clients (`withings-api`, `oura-ring`),
+because their official documentation sites couldn't be reached from the build environment; confirm with one
+real account after setup. Polar is not included yet: its current API hands out each day's data once through
+"transactions" and is being replaced by a new API.
 
 Sources of truth for the field names: Google's generated client (`googleapis`, `health/v4`), GitHub's
 GraphQL schema (`@octokit/graphql-schema`) and OAuth flow (`@octokit/oauth-methods`), and Lichess's
@@ -38,6 +48,23 @@ OpenAPI spec (`@lichess-org/types`).
 - Syncing continues for 2 hours after the end, and settlement waits for that plus the dispute window.
 - One provider account can be connected to only one GoalFi user, so nobody counts twice.
 - Disconnecting revokes access and deletes stored raw data. Evidence already used stays.
+
+## "Watch or proof" challenges
+
+`verificationMethod = HYBRID`: anyone can join. Participants with a connected source for the metric sync automatically
+and can't upload; everyone else uploads proof that the challenge's verifiers approve (with the usual review deadline
+and disputes). For daily goals, an upload must state the day's amount, and it must reach the daily target. Community
+size and wake-up time can't be proven by upload, so they're app-only.
+
+## Notifications that bring people back
+
+- **Running short:** within 3 hours of the deadline (the challenge end for totals, the end of the challenge day for
+  daily goals), participants who haven't reached the target get one reminder with how much is left.
+- **Big price moves:** when the YES price moves 15+ points since the last alert, holders (trades recorded by GoalFi)
+  and participants are notified.
+- **Weekly Telegram ideas:** every Monday from 10:00 UTC, linked groups get three ideas (a growth goal, a group
+  activity, and a task anyone can do) with one-tap create buttons. `/ideas` shows them any time; group admins can
+  use `/ideas off` and `/ideas on`.
 
 ## Manipulation safeguards
 

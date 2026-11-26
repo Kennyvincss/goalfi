@@ -105,7 +105,7 @@ export const CreateChallengeSchema = z
     maxParticipants: z.number().int().min(1).max(100_000).optional(),
     verifierUsernames: z.array(z.string().min(1)).max(50),
     /** MANUAL: human verifiers. CONNECTED_APP: progress is synced from connected accounts (see APP_METRICS). */
-    verification: z.enum(["MANUAL", "CONNECTED_APP"]).default("MANUAL"),
+    verification: z.enum(["MANUAL", "CONNECTED_APP", "HYBRID"]).default("MANUAL"),
     /** Required for CONNECTED_APP. dailyTarget: what makes a day count for "N days" rules. */
     app: z.object({ metric: z.enum(APP_METRIC_IDS), dailyTarget: z.number().positive().optional() }).optional(),
     adminUsernames: z.array(z.string().min(1)).max(20),
@@ -116,7 +116,12 @@ export const CreateChallengeSchema = z
   .superRefine((c, ctx) => {
     if (c.endDate <= c.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after start date" });
     const app = c.verification === "CONNECTED_APP";
-    if (app) {
+    if (c.verification === "HYBRID") {
+      const metric = c.app ? APP_METRICS[c.app.metric] : null;
+      if (metric?.source === "level") ctx.addIssue({ code: "custom", path: ["app"], message: "“Watch or proof” is for personal activity, not community size" });
+      else if (metric?.better === "lower") ctx.addIssue({ code: "custom", path: ["app"], message: `${metric.label} can’t be proven by an upload: use Connected app` });
+    }
+    if (c.verification !== "MANUAL") {
       const metric = c.app ? APP_METRICS[c.app.metric] : null;
       if (!metric) ctx.addIssue({ code: "custom", path: ["app"], message: "Choose what is measured" });
       const r = c.successRule;

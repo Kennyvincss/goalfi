@@ -158,6 +158,8 @@ export async function systemStatus(): Promise<Check[]> {
         );
       };
       pair("Google Health", "GOOGLE_HEALTH_CLIENT_ID", "GOOGLE_HEALTH_CLIENT_SECRET", "/api/accounts/google/callback", "Needs a Google Cloud OAuth client (step 10).");
+      pair("Withings", "WITHINGS_CLIENT_ID", "WITHINGS_CLIENT_SECRET", "/api/accounts/withings/callback", "Needs a Withings developer app (step 10d).");
+      pair("Oura", "OURA_CLIENT_ID", "OURA_CLIENT_SECRET", "/api/accounts/oura/callback", "Needs an Oura API application (step 10e).");
       pair("GitHub", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "/api/accounts/github/callback", "Needs a GitHub OAuth app (step 10).");
     }
   }

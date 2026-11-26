@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { accountsTick, chainTick, lifecycleTick } from "@goalfi/services";
+import { accountsTick, chainTick, lifecycleTick, weeklyIdeasTick } from "@goalfi/services";
 import { HttpError } from "@/lib/server/auth";
 import { json, route } from "@/lib/server/api";
 import { services } from "@/lib/server/services";
@@ -30,6 +30,7 @@ export const GET = route(async (req) => {
     // Connected accounts first, so freshly synced data is in place before auto-settlement looks at it.
     // (Community member counts work even without ACCOUNT_TOKEN_KEY.)
     accounts: await step(() => accountsTick(ctx, accountsConfig())),
+    ideas: await step(() => weeklyIdeasTick(ctx, accountsConfig())),
     lifecycle: await step(() => lifecycleTick(ctx)),
     chain: await step(() => chainTick(ctx)),
     telegram: telegramOnVercel() ? await step(() => telegramTick()) : "disabled (TELEGRAM_RUN_ON_VERCEL not set)",

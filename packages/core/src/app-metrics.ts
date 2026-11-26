@@ -3,12 +3,14 @@
  * has). Every metric here maps to a documented provider field; see docs/CONNECTED_ACCOUNTS.md.
  */
 
-export const ACCOUNT_PROVIDERS = ["GOOGLE_HEALTH", "GITHUB", "LICHESS"] as const;
+export const ACCOUNT_PROVIDERS = ["GOOGLE_HEALTH", "WITHINGS", "OURA", "GITHUB", "LICHESS"] as const;
 export type AccountProviderId = (typeof ACCOUNT_PROVIDERS)[number];
 export type MetricProvider = AccountProviderId | "GOALFI" | "TELEGRAM";
 
 export const PROVIDER_INFO: Record<MetricProvider, { name: string; detail: string; connectable: boolean }> = {
   GOOGLE_HEALTH: { name: "Google Health", detail: "Fitbit and Pixel Watch: steps, distance, workouts, sleep", connectable: true },
+  WITHINGS: { name: "Withings", detail: "Withings watches and trackers: steps and distance", connectable: true },
+  OURA: { name: "Oura", detail: "Oura Ring: steps, workouts and runs, sleep", connectable: true },
   GITHUB: { name: "GitHub", detail: "Daily contributions (commits, pull requests, issues, reviews)", connectable: true },
   LICHESS: { name: "Lichess", detail: "Chess games played and puzzles solved", connectable: true },
   GOALFI: { name: "GoalFi", detail: "Community membership on GoalFi", connectable: false },
@@ -40,21 +42,23 @@ export interface AppMetricDef {
   decimals: number;
   /** Set for metrics that are easier to fake: shown to creators and traders, and markets get smaller limits. */
   easyToGame?: string;
+  /** Other accounts that can also supply this metric (the first source is `provider`). */
+  alsoFrom?: AccountProviderId[];
 }
 
 const m = (d: AppMetricDef): AppMetricDef => d;
 
 export const APP_METRICS = {
   steps: m({
-    id: "steps", provider: "GOOGLE_HEALTH", source: "daily", unit: "steps", label: "Steps", category: "fitness", better: "higher", decimals: 0,
+    id: "steps", provider: "GOOGLE_HEALTH", alsoFrom: ["WITHINGS", "OURA"], source: "daily", unit: "steps", label: "Steps", category: "fitness", better: "higher", decimals: 0,
     description: "Daily step count", daily: { default: 8000, min: 100, max: 200_000, step: 500, typical: 6000 },
   }),
   distance_km: m({
-    id: "distance_km", provider: "GOOGLE_HEALTH", source: "daily", unit: "km", label: "Distance", category: "fitness", better: "higher", decimals: 1,
+    id: "distance_km", provider: "GOOGLE_HEALTH", alsoFrom: ["WITHINGS"], source: "daily", unit: "km", label: "Distance", category: "fitness", better: "higher", decimals: 1,
     description: "Distance walked, run or cycled per day (kilometres)", daily: { default: 5, min: 0.5, max: 300, step: 0.5, typical: 4 },
   }),
   running_km: m({
-    id: "running_km", provider: "GOOGLE_HEALTH", source: "daily", unit: "km", label: "Running distance", category: "fitness", better: "higher", decimals: 1,
+    id: "running_km", provider: "GOOGLE_HEALTH", alsoFrom: ["OURA"], source: "daily", unit: "km", label: "Running distance", category: "fitness", better: "higher", decimals: 1,
     description: "Distance of runs recorded as a run workout on the watch (walks and rides don't count)", daily: { default: 3, min: 0.5, max: 100, step: 0.5, typical: 2 },
   }),
   floors: m({
@@ -66,11 +70,11 @@ export const APP_METRICS = {
     description: "Minutes in fat-burn, cardio or peak heart-rate zones per day", daily: { default: 30, min: 5, max: 600, step: 5, typical: 20 },
   }),
   workouts: m({
-    id: "workouts", provider: "GOOGLE_HEALTH", source: "daily", unit: "workouts", label: "Workouts", category: "fitness", better: "higher", decimals: 0,
+    id: "workouts", provider: "GOOGLE_HEALTH", alsoFrom: ["OURA"], source: "daily", unit: "workouts", label: "Workouts", category: "fitness", better: "higher", decimals: 0,
     description: "Recorded workouts of 10+ active minutes (gym, runs, rides, swims…)", daily: { default: 1, min: 1, max: 10, step: 1, typical: 0.5 },
   }),
   wake_time: m({
-    id: "wake_time", provider: "GOOGLE_HEALTH", source: "daily", unit: "wake-up time", label: "Wake-up time", category: "lifestyle", better: "lower", decimals: 0,
+    id: "wake_time", provider: "GOOGLE_HEALTH", alsoFrom: ["OURA"], source: "daily", unit: "wake-up time", label: "Wake-up time", category: "lifestyle", better: "lower", decimals: 0,
     description: "When your main sleep ended (local time), from your watch's sleep tracking", daily: { default: 360, min: 180, max: 720, step: 15, typical: 420 },
   }),
   github_contributions: m({
@@ -100,6 +104,26 @@ export const APP_METRICS = {
 
 export type AppMetricId = keyof typeof APP_METRICS;
 export const APP_METRIC_IDS = Object.keys(APP_METRICS) as [AppMetricId, ...AppMetricId[]];
+
+/** Every source that can supply a metric. */
+export function metricProviders(m: AppMetricDef): MetricProvider[] {
+  return [m.provider, ...(m.alsoFrom ?? [])];
+}
+
+/** "Google Health, Withings or Oura". */
+export function metricSourceLabel(m: AppMetricDef): string {
+  const names = metricProviders(m).map((p) => PROVIDER_INFO[p].name);
+  return names.length <= 1 ? names[0]! : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+}
+
+/** Combine one day's values from several sources: the best one counts (never summed). */
+export function combineDaily(m: AppMetricDef, values: number[]): number {
+  return m.better === "lower" ? Math.min(...values) : Math.max(...values);
+}
+
+/** Verification methods that read a connected metric / accept uploaded proof. */
+export const usesAppMetric = (method: string) => method === "CONNECTED_APP" || method === "HYBRID";
+export const acceptsProof = (method: string) => method === "MANUAL" || method === "HYBRID";
 
 export function appMetric(id: string | null | undefined): AppMetricDef | null {
   return id && id in APP_METRICS ? APP_METRICS[id as AppMetricId] : null;

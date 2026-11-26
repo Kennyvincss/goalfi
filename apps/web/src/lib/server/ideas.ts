@@ -1,5 +1,5 @@
 import "server-only";
-import { APP_METRICS, suggestChallenges, type AppMetricId, type AppSuggestion } from "@goalfi/core";
+import { APP_METRICS, metricProviders, suggestChallenges, type AppMetricId, type AppSuggestion } from "@goalfi/core";
 import { prisma } from "@goalfi/db";
 import { listAccounts, recentDaily, telegramMemberCount } from "@goalfi/services";
 import { accountsConfig } from "./accounts";
@@ -10,7 +10,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 /** Metrics the user can be measured on: their active connected accounts. */
 export async function connectedMetrics(userId: string): Promise<AppMetricId[]> {
   const active = new Set((await listAccounts(services(), userId)).filter((a) => a.status === "ACTIVE").map((a) => a.provider as string));
-  return (Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => active.has(APP_METRICS[id].provider));
+  return (Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => metricProviders(APP_METRICS[id]).some((p) => active.has(p)));
 }
 
 /** Completed-day history (oldest first) for one metric. Today is excluded because it's still in progress. */
@@ -45,21 +45,4 @@ export async function adminCommunities(userId: string) {
     id: c.id, name: c.name, memberCount: c._count.members,
     telegramMembers: c.telegramChatId && cfg?.telegram ? await telegramMemberCount(cfg.telegram.botToken, c.telegramChatId, fetch, cfg.telegram.apiRoot) : null,
   })));
-}
-
-/** Group ideas for a community: growth goals plus group versions of every metric this server can verify. */
-export function communityIdeas(
-  c: { name: string; memberCount: number; telegramMembers: number | null },
-  availableProviders: Set<string>,
-): AppSuggestion[] {
-  const out: AppSuggestion[] = [
-    ...suggestChallenges("community_members", [], { name: c.name, memberCount: c.memberCount, currentLevel: c.memberCount }),
-    ...(c.telegramMembers !== null ? suggestChallenges("telegram_members", [], { name: c.name, memberCount: c.memberCount, currentLevel: c.telegramMembers }) : []),
-  ];
-  for (const id of Object.keys(APP_METRICS) as AppMetricId[]) {
-    const m = APP_METRICS[id];
-    if (m.source === "level" || !availableProviders.has(m.provider)) continue;
-    out.push(...suggestChallenges(id, [], { name: c.name, memberCount: c.memberCount }).filter((s) => s.scope === "group"));
-  }
-  return out;
 }

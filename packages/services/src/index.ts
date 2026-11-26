@@ -23,5 +23,8 @@ export { parseDailyRollup, countWorkouts, runningKm, isRun, wakeTimes, GOOGLE_HE
 export { parseContributionCalendar } from "./accounts/github";
 export { LICHESS_SCOPE } from "./accounts/lichess";
 export { telegramMemberCount } from "./accounts/telegram-count";
+export { parseWithingsActivities } from "./accounts/withings";
+export { parseOura } from "./accounts/oura";
 export { encryptToken, decryptToken } from "./accounts/crypto";
 export * from "./integrity";
+export * from "./ideas";

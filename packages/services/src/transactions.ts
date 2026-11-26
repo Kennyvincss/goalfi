@@ -137,7 +137,40 @@ export async function snapshotMarket(ctx: ServiceContext, marketId: string) {
     data: { marketId, yesPrice: s.yesPrice, reserveYes: s.reserveYes, reserveNo: s.reserveNo, lEff: s.lEff, poolValue: s.poolValue },
   });
   await ctx.db.market.update({ where: { id: marketId }, data: { liquidity: BigInt(Math.floor(s.poolValue)) } });
+  await priceMoveAlert(ctx, marketId, s.yesPrice).catch((e) => console.error("[price alert]", (e as Error).message));
   return snap;
+}
+
+/** A move of this size (in probability) since the last alert notifies holders and participants. */
+export const PRICE_ALERT_MOVE = 0.15;
+
+/** Tell people with a stake (YES/NO holders recorded by GoalFi, and participants) about a big price move. */
+export async function priceMoveAlert(ctx: ServiceContext, marketId: string, yes: number): Promise<boolean> {
+  if (!Number.isFinite(yes)) return false;
+  const m = await ctx.db.market.findUnique({ where: { id: marketId }, include: { challenge: { select: { id: true, slug: true, title: true } } } });
+  if (!m || m.status !== "OPEN") return false;
+  const prev = m.lastAlertPrice;
+  if (prev === null) {
+    await ctx.db.market.updateMany({ where: { id: marketId, lastAlertPrice: null }, data: { lastAlertPrice: yes } });
+    return false;
+  }
+  if (Math.abs(yes - prev) < PRICE_ALERT_MOVE) return false;
+  // Conditional update: concurrent snapshots alert once.
+  const r = await ctx.db.market.updateMany({ where: { id: marketId, lastAlertPrice: prev }, data: { lastAlertPrice: yes } });
+  if (r.count !== 1) return false;
+  const [holders, participants] = await Promise.all([
+    ctx.db.position.findMany({ where: { marketId }, select: { userId: true, sharesBought: true, sharesSold: true } }),
+    ctx.db.participant.findMany({ where: { challengeId: m.challenge.id, status: { not: "WITHDRAWN" } }, select: { userId: true } }),
+  ]);
+  const users = [...new Set([...holders.filter((h) => h.sharesBought > h.sharesSold).map((h) => h.userId), ...participants.map((p) => p.userId)])];
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  await notify(ctx.db, users, {
+    type: "MARKET_UPDATE",
+    message: `${yes > prev ? "📈" : "📉"} “${m.challenge.title}”: YES moved from ${pct(prev)} to ${pct(yes)}.`,
+    link: link(ctx, `/markets/${m.challenge.slug}`),
+    dedupKey: `PRICE:${marketId}:${pct(prev)}:${pct(yes)}:${ctx.now().getTime()}`,
+  });
+  return true;
 }
 
 /** Reconciler pass for transactions still PENDING (e.g. the browser closed before confirmation). */

@@ -28,7 +28,7 @@ export interface ConnectResult extends TokenSet {
 
 /** One connectable data source. All network access goes through `f` so tests can fake it. */
 export interface ProviderClient {
-  id: "GOOGLE_HEALTH" | "GITHUB" | "LICHESS";
+  id: "GOOGLE_HEALTH" | "GITHUB" | "LICHESS" | "WITHINGS" | "OURA";
   /** URL to send the user to. `verifier` (PKCE) must be kept server-side until the callback. */
   authorize(state: string): { url: string; verifier?: string };
   exchange(code: string, verifier: string | undefined, f: Fetch): Promise<ConnectResult>;

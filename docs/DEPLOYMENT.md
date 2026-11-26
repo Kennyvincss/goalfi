@@ -244,6 +244,8 @@ verifiers and settle automatically. What can be verified (see `docs/CONNECTED_AC
 | **GoalFi** | community members | none |
 | **Telegram** | members of the community's linked group | the bot (already set up) |
 | **Google Health** (Fitbit, Pixel Watch) | steps, distance, running distance, floors, heart-zone minutes, workouts, wake-up time | Google Cloud OAuth client |
+| **Withings** (watches, trackers) | steps, distance | Withings developer app |
+| **Oura** (ring) | steps, workouts, running distance, wake-up time | Oura API application |
 | **GitHub** | daily contributions | GitHub OAuth app |
 
 **a. The key (required for any account).** In Vercel add `ACCOUNT_TOKEN_KEY` = 32+ random letters
@@ -266,6 +268,22 @@ and numbers (e.g. from a password generator), then Redeploy. Lichess is now on.
    Authorization callback URL: `https://<your-site>/api/accounts/github/callback`.
 2. Copy the **Client ID**, click **Generate a new client secret**, and add both to Vercel as
    `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. Redeploy.
+
+**d. Withings.**
+1. Create a free account at **developer.withings.com**, open the developer dashboard, and create an application
+   (public API integration). Callback URL: `https://<your-site>/api/accounts/withings/callback`.
+2. Copy the **Client ID** and **Secret** into Vercel as `WITHINGS_CLIENT_ID` and `WITHINGS_CLIENT_SECRET`. Redeploy.
+GoalFi reads only data recorded by Withings watches and trackers (phone-only step counts are ignored).
+
+**e. Oura.**
+1. Sign in at **cloud.ouraring.com**, go to **API Applications → New application**. Redirect URI:
+   `https://<your-site>/api/accounts/oura/callback`. Enable the scopes **personal**, **daily** and **workout**.
+2. Copy the **Client ID** and **Client Secret** into Vercel as `OURA_CLIENT_ID` and `OURA_CLIENT_SECRET`. Redeploy.
+Workouts logged by hand in the Oura app are ignored. Note: Oura's API only returns data for members with an active
+Oura membership.
+
+The same metric can come from several sources (e.g. steps from Google Health, Withings or Oura). If someone connects
+more than one, each day counts once, using the higher value.
 
 Admin → System status shows each source as on/off with the exact redirect address.
 
@@ -300,6 +318,8 @@ dispute window, then resolves the market with the computed outcome.
 | `TELEGRAM_WEBHOOK_URL` / `PORT` | | optional | standalone bot webhook mode only |
 | `ACCOUNT_TOKEN_KEY` | optional | optional | 32+ random characters, encrypts connected-account tokens (**secret**). Turns on Lichess. Changing it disconnects everyone |
 | `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET` | optional | optional | Google OAuth client (step 10b; secret is **secret**) |
+| `WITHINGS_CLIENT_ID` / `WITHINGS_CLIENT_SECRET` | optional | optional | Withings developer app (step 10d; secret is **secret**) |
+| `OURA_CLIENT_ID` / `OURA_CLIENT_SECRET` | optional | optional | Oura API application (step 10e; secret is **secret**) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | optional | optional | GitHub OAuth app (step 10c; secret is **secret**) |
 | `GOALFI_CONTACT_EMAIL` | recommended | | contact address shown on /privacy and /terms (Google's sign-in review requires one) |
 | `TRUST_MIN_ACCOUNT_DAYS` | optional | optional | days before a new account can join challenges with a market and count as a community member (default `7`; set `0` while testing with brand-new accounts) |

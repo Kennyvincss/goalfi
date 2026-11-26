@@ -9,6 +9,7 @@ export const BOT_COMMANDS = [
   { command: "markets", description: "Live markets and prices" },
   { command: "leaderboard", description: "Rankings" },
   { command: "submit", description: "Submit evidence" },
+  { command: "ideas", description: "Challenge ideas for this group" },
   { command: "join", description: "Join this group's GoalFi community" },
   { command: "help", description: "Help" },
 ];

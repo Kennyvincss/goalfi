@@ -142,6 +142,8 @@ model Community {
   telegramChatId   BigInt?    @unique @map("telegram_chat_id")
   telegramTitle    String?
   telegramLinkedAt DateTime?
+  /// Post a few challenge ideas to the linked Telegram group once a week.
+  weeklyIdeas      Boolean    @default(true)
   announcement     String?
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt
@@ -310,6 +312,8 @@ model Challenge {
 enum VerificationMethod {
   MANUAL
   CONNECTED_APP
+  /// Connected app for those who have one; uploaded proof reviewed by verifiers for everyone else.
+  HYBRID
 }
 
 enum ChallengeRoleType {
@@ -494,6 +498,8 @@ enum MarketStatus {
 
 model Market {
   id                  String       @id @default(cuid())
+  /// YES price when holders were last alerted about a big move (null = not yet set).
+  lastAlertPrice      Float?
   challengeId         String       @unique @map("challenge_id")
   challenge           Challenge    @relation(fields: [challengeId], references: [id], onDelete: Restrict)
   cluster             Cluster
@@ -786,6 +792,8 @@ enum AccountProvider {
   GOOGLE_HEALTH
   GITHUB
   LICHESS
+  WITHINGS
+  OURA
 }
 
 /// A user's link to a data provider. Tokens are encrypted (AES-256-GCM, ACCOUNT_TOKEN_KEY).

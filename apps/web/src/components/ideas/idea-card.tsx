@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { APP_METRICS, PROVIDER_INFO, type AppSuggestion, type ChallengeTemplate } from "@goalfi/core";
+import { APP_METRICS, metricSourceLabel, type AppSuggestion, type ChallengeTemplate } from "@goalfi/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,7 @@ export function SuggestionCard({ s, communityId }: { s: AppSuggestion; community
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="muted">{length(s.durationDays)}</Badge>
           <DifficultyBadge d={s.difficulty} />
-          <Badge variant="muted">Verified by {PROVIDER_INFO[m.provider].name}</Badge>
+          <Badge variant="muted">Verified by {metricSourceLabel(m)}</Badge>
           {m.easyToGame && <Badge variant="outline" className="border-warning text-warning" title={m.easyToGame}>Easier to game</Badge>}
         </div>
         <CardTitle className="text-base">{s.title}</CardTitle>

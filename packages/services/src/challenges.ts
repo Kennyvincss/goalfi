@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   accountOldEnough,
   appMetric,
+  metricSourceLabel,
   easyToGameReason,
   marketLimits,
   PROVIDER_INFO,
@@ -23,7 +24,7 @@ import { link, trustDays, type Actor, type ServiceContext } from "./context";
 import { conflict, forbidden, invalid, isUniqueViolation, notFound, ServiceError } from "./errors";
 import { announceToCommunity, notify } from "./notifications";
 import { audit } from "./audit";
-import { accountReadyFor } from "./accounts/service";
+import { readyAccounts } from "./accounts/service";
 import { holdsNo } from "./integrity";
 
 function slugify(title: string): string {
@@ -93,8 +94,8 @@ export async function createChallenge(ctx: ServiceContext, actor: Actor, raw: un
       reviewDeadlineHours: input.reviewDeadlineHours ?? null,
       autoSettle: input.autoSettle,
       verificationMethod: input.verification,
-      appMetric: input.verification === "CONNECTED_APP" ? input.app!.metric : null,
-      appDailyTarget: input.verification === "CONNECTED_APP" && input.successRule.type === "daily_completion" ? (input.app!.dailyTarget ?? null) : null,
+      appMetric: input.verification !== "MANUAL" ? input.app!.metric : null,
+      appDailyTarget: input.verification !== "MANUAL" && input.successRule.type === "daily_completion" ? (input.app!.dailyTarget ?? null) : null,
       maxParticipants: input.maxParticipants ?? null,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -255,7 +256,7 @@ export async function startChallengeNow(ctx: ServiceContext, actor: Actor, chall
   if (c.status !== "UPCOMING") throw conflict("Only upcoming challenges can be started early");
   const now = ctx.now();
   const DAY = 86_400_000;
-  const start = c.verificationMethod === "CONNECTED_APP"
+  const start = c.verificationMethod !== "MANUAL"
     ? new Date(c.startDate.getTime() - Math.ceil((c.startDate.getTime() - now.getTime()) / DAY) * DAY)
     : now;
   const r = await ctx.db.challenge.updateMany({ where: { id: c.id, status: "UPCOMING" }, data: { startDate: start, status: "ACTIVE" } });
@@ -284,16 +285,15 @@ export async function joinChallenge(ctx: ServiceContext, actor: Actor, challenge
     if (market && (await holdsNo(ctx, { id: actor.id, walletAddress: me.walletAddress }, market)))
       throw conflict("You hold NO shares on this challenge’s market. Participants can’t bet against themselves: sell them first, then join.");
   }
+  // App-only challenges need a connected source; "watch or proof" lets anyone join (they upload proof instead).
   const metric = c.verificationMethod === "CONNECTED_APP" ? appMetric(c.appMetric) : null;
-  if (metric && metric.source !== "level") {
-    const provider = metric.provider as AccountProviderId;
-    const acct = await ctx.db.connectedAccount.findUnique({ where: { userId_provider: { userId: actor.id, provider } } });
-    if (!accountReadyFor(acct, metric))
-      throw conflict(
-        acct && acct.status === "ACTIVE"
-          ? `This challenge needs sleep data: reconnect ${PROVIDER_INFO[provider].name} in Settings and allow sleep access.`
-          : `This challenge is verified from ${PROVIDER_INFO[provider].name}. Connect your account in Settings → Connected accounts first.`,
-      );
+  if (metric && metric.source !== "level" && (await readyAccounts(ctx, actor.id, metric)).length === 0) {
+    const google = await ctx.db.connectedAccount.findUnique({ where: { userId_provider: { userId: actor.id, provider: "GOOGLE_HEALTH" } } });
+    throw conflict(
+      metric.id === "wake_time" && google?.status === "ACTIVE"
+        ? `This challenge needs sleep data: reconnect Google Health in Settings and allow sleep access (or connect Oura).`
+        : `This challenge is verified from ${metricSourceLabel(metric)}. Connect your account in Settings → Connected accounts first.`,
+    );
   }
   try {
     const p = await ctx.db.participant.create({ data: { challengeId, userId: actor.id } });
