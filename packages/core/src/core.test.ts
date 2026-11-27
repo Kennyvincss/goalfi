@@ -448,3 +448,20 @@ describe("several sources per metric and watch-or-proof rules", () => {
     expect(CreateChallengeSchema.safeParse({ ...base, app: { metric: "wake_time", dailyTarget: 400 }, successRule: { type: "daily_completion", requiredDays: 2, minParticipants: 1 } }).success).toBe(false);
   });
 });
+
+describe("badges and track record", () => {
+  const base = { joined: 0, completed: 0, failed: 0, currentStreak: 0, longestStreak: 0, hosted: 0, hostedSettled: 0, hostedYes: 0, marketsHosted: 0, fairVerifications: 0, overturned: 0, selfBetFlags: 0, appVerifiedCompleted: 0, reputation: 0 };
+  it("earns badges from real activity only", async () => {
+    const { earnedBadges } = await import("./index");
+    expect(earnedBadges(base)).toEqual([]);
+    expect(earnedBadges({ ...base, longestStreak: 31, completed: 3, appVerifiedCompleted: 1 }).map((b) => b.id)).toEqual(["streak-7", "streak-30", "finish-1", "watch-1"]);
+  });
+  it("suggests the closest next badge per family and computes the success rate", async () => {
+    const { nextBadges, successRate } = await import("./index");
+    const next = nextBadges({ ...base, longestStreak: 5, completed: 1, fairVerifications: 2 });
+    expect(next[0]).toMatchObject({ badge: { id: "streak-7" }, have: 5, target: 7 });
+    expect(next.map((x) => x.badge.id)).not.toContain("streak-30"); // one per family
+    expect(successRate({ completed: 3, failed: 1 })).toBe(0.75);
+    expect(successRate({ completed: 0, failed: 0 })).toBeNull();
+  });
+});

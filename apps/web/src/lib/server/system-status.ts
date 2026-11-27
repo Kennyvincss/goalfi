@@ -178,5 +178,24 @@ export async function systemStatus(): Promise<Check[]> {
         ? { area: "Scheduler", status: "warn", detail: `Last ran ${Math.round(mins)} minutes ago`, fix: "Check the cron-job.org job is enabled and its history shows 200." }
         : { area: "Scheduler", status: "ok", detail: `Last ran ${mins < 1 ? "under a minute" : `${Math.round(mins)} min`} ago` },
   );
+  // ── Launch readiness (see docs/MAINNET_READINESS.md) ──
+  {
+    const host = new URL(app.url).host;
+    checks.push(host.endsWith(".vercel.app")
+      ? { area: "Launch: domain", status: "info", detail: `Running on ${host}`, fix: "Before launch, connect your own domain (needed for Google sign-in verification and user trust)." }
+      : { area: "Launch: domain", status: "ok", detail: host });
+    const trust = (env.TRUST_MIN_ACCOUNT_DAYS ?? "").trim();
+    checks.push(trust === "0"
+      ? { area: "Launch: new-account rule", status: "warn", detail: "TRUST_MIN_ACCOUNT_DAYS is 0, so brand-new accounts can join challenges with markets", fix: "Delete TRUST_MIN_ACCOUNT_DAYS in Vercel (default 7 days) once testing is done, then Redeploy." }
+      : { area: "Launch: new-account rule", status: "ok", detail: `Accounts must be ${trust || "7"} day(s) old to join challenges with a market` });
+    checks.push(env.GOALFI_CONTACT_EMAIL?.trim()
+      ? { area: "Launch: support contact", status: "ok", detail: env.GOALFI_CONTACT_EMAIL.trim() }
+      : { area: "Launch: support contact", status: "warn", detail: "GOALFI_CONTACT_EMAIL isn't set, so /privacy and /terms show no contact address", fix: "Add GOALFI_CONTACT_EMAIL in Vercel, then Redeploy." });
+    const cluster = (env.GOALFI_CLUSTER ?? "devnet").trim();
+    checks.push(cluster === "mainnet-beta"
+      ? { area: "Launch: network", status: "warn", detail: "Mainnet: real money", fix: "Make sure every blocking item in docs/MAINNET_READINESS.md is done, the market-authority key is in a hardware-backed signer, and limits are set for real money." }
+      : { area: "Launch: network", status: "info", detail: "Devnet with test tokens (no real money)", fix: "Mainnet needs the legal, key-management and security work listed in docs/MAINNET_READINESS.md." });
+  }
+
   return checks;
 }

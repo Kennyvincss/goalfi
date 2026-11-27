@@ -17,6 +17,7 @@ import { LiveHeader } from "./live-header";
 import { TradePanel } from "./trade-panel";
 import { PositionPanel } from "./position-panel";
 import { PriceChart } from "./price-chart";
+import { CreatorRecord } from "@/components/profile/creator-record";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   const c = await prisma.challenge.findUniqueOrThrow({
     where: { id: row.id },
     include: {
-      category: true, community: { select: { slug: true, name: true } }, _count: { select: { participants: true } },
+      category: true, community: { select: { slug: true, name: true } }, _count: { select: { participants: true } }, creator: { select: { username: true } },
       market: { include: { snapshots: { orderBy: { takenAt: "asc" }, take: 500, select: { takenAt: true, yesPrice: true } } } },
     },
   });
@@ -92,6 +93,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
             <p className="mt-1 text-sm text-muted-foreground">
               Challenge: <Link className="text-primary" href={`/challenges/${c.slug}`}>{c.title}</Link> · {c._count.participants} participants · {m.status === "RESOLVED" ? "resolved" : m.status === "OPEN" || m.status === "AWAITING_LIQUIDITY" ? timeRemaining(m.endTs) : "trading closed"}
             </p>
+            <div className="mt-1"><CreatorRecord userId={c.creatorId} username={c.creator.username} /></div>
           </div>
 
           <Card>

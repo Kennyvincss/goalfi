@@ -9,7 +9,8 @@ import { TelegramLoginButton } from "./telegram-login";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
-  const next = useSearchParams().get("next") ?? "/dashboard";
+  const nextParam = useSearchParams().get("next");
+  const next = nextParam ?? "/dashboard";
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [busy, setBusy] = useState(false);
@@ -28,7 +29,8 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
       setFieldErrors(data.details ?? {});
       return;
     }
-    router.push(next.startsWith("/") ? next : "/dashboard");
+    // New accounts start with the getting-started steps (unless they were on their way somewhere).
+    router.push(mode === "signup" && !nextParam ? "/welcome" : next.startsWith("/") ? next : "/dashboard");
     router.refresh();
   }
 
@@ -40,7 +42,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         {mode === "signup" ? (
           <>
             <div className="space-y-1.5"><Label htmlFor="username">Username</Label><Input id="username" name="username" autoComplete="username" required placeholder="e.g. runner_kim" />{err("username")}</div>
-            <div className="space-y-1.5"><Label htmlFor="displayName">Display name <span className="text-muted-foreground">(optional)</span></Label><Input id="displayName" name="displayName" autoComplete="name" /></div>
+            <div className="space-y-1.5"><Label htmlFor="displayName">Display name <span className="text-muted-foreground">(optional)</span></Label><Input id="displayName" name="displayName" autoComplete="name" maxLength={50} />{err("displayName")}</div>
             <div className="space-y-1.5"><Label htmlFor="email">Email</Label><Input id="email" name="email" type="email" autoComplete="email" required />{err("email")}</div>
             <div className="space-y-1.5"><Label htmlFor="password">Password</Label><Input id="password" name="password" type="password" autoComplete="new-password" required minLength={10} />{err("password")}</div>
           </>

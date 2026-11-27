@@ -28,3 +28,4 @@ export { parseOura } from "./accounts/oura";
 export { encryptToken, decryptToken } from "./accounts/crypto";
 export * from "./integrity";
 export * from "./ideas";
+export * from "./profile";

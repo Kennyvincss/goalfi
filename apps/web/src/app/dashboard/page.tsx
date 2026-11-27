@@ -11,6 +11,11 @@ import { getCurrentUser } from "@/lib/server/auth";
 import { challengeCardInclude, listChallenges } from "@/lib/server/queries";
 import { userStats } from "@/lib/server/user-stats";
 import { timeRemaining } from "@/lib/utils";
+import { earnedBadges, nextBadges } from "@goalfi/core";
+import { onboardingState, trackRecord } from "@goalfi/services";
+import { services } from "@/lib/server/services";
+import { BadgeList } from "@/components/profile/badges";
+import { FinishOnboarding } from "@/components/onboarding/finish-button";
 
 export const metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
@@ -33,6 +38,15 @@ export default async function Dashboard() {
     }),
   ]);
   const deadlines = active.filter((c) => c.endDate > new Date()).slice(0, 5);
+  const [onboarding, record] = await Promise.all([onboardingState(services(), user.id), trackRecord(services(), user.id)]);
+  const badges = earnedBadges(record);
+  const upNext = nextBadges(record, 3);
+  const checklist = [
+    { done: onboarding.hasAccount, label: "Connect a watch or app", hint: "so challenges verify themselves", href: "/welcome?step=1" },
+    { done: onboarding.hasActivity, label: "Join or create a challenge", hint: "pick from ideas built for you", href: "/welcome?step=2" },
+    { done: onboarding.telegram, label: "Connect Telegram", hint: "optional: reminders and group challenges", href: "/settings#telegram" },
+    { done: onboarding.wallet, label: "Link a wallet", hint: "optional: only needed to trade", href: "/settings#wallet" },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl space-y-10 px-4 py-10">
@@ -49,6 +63,27 @@ export default async function Dashboard() {
           <Button asChild variant="outline"><Link href="/portfolio"><Wallet />Portfolio</Link></Button>
         </div>
       </div>
+
+      {!onboarding.done && (
+        <Card className="border-primary/40">
+          <CardHeader className="flex-row items-center justify-between gap-2">
+            <CardTitle>Getting started · {checklist.filter((c) => c.done).length}/{checklist.length}</CardTitle>
+            <FinishOnboarding label="Dismiss" variant="ghost" size="sm" />
+          </CardHeader>
+          <CardContent>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {checklist.map((c) => (
+                <li key={c.label}>
+                  <Link href={c.href} className="flex items-start gap-2 rounded-md border p-3 text-sm hover:border-primary">
+                    <span className={c.done ? "text-yes" : "text-muted-foreground"} aria-label={c.done ? "done" : "to do"}>{c.done ? "✓" : "○"}</span>
+                    <span><span className={c.done ? "line-through opacity-70" : "font-medium"}>{c.label}</span><span className="block text-xs text-muted-foreground">{c.hint}</span></span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         <Stat label="Joined" value={stats.joined} />
@@ -73,6 +108,24 @@ export default async function Dashboard() {
           </div>
         </section>
         <div className="space-y-6">
+          <Card>
+            <CardHeader><CardTitle>Badges</CardTitle></CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {badges.length > 0 ? <BadgeList badges={badges} /> : <p className="text-muted-foreground">No badges yet. Finish a challenge to earn your first.</p>}
+              {upNext.length > 0 && (
+                <div className="space-y-2">
+                  <p className="font-medium">Up next</p>
+                  {upNext.map((n) => (
+                    <div key={n.badge.id}>
+                      <div className="flex justify-between text-xs"><span>{n.badge.emoji} {n.badge.label}: {n.badge.description.toLowerCase()}</span><span className="tabular">{Math.min(n.have, n.target)}/{n.target}</span></div>
+                      <div className="mt-1 h-1.5 rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (n.have / n.target) * 100)}%` }} /></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Link href={`/profile/${user.username}`} className="text-xs text-primary underline-offset-4 hover:underline">Your public profile →</Link>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader><CardTitle>Upcoming deadlines</CardTitle></CardHeader>
             <CardContent>

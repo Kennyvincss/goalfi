@@ -7,7 +7,8 @@ const Body = z.object({
   username: z.string().trim().toLowerCase().regex(USERNAME_RE, "3–24 chars: a–z, 0–9, underscore"),
   email: z.email().trim().toLowerCase(),
   password: z.string().min(10, "At least 10 characters").max(200),
-  displayName: z.string().trim().min(1).max(50).optional(),
+  // Optional: a blank field from the form means "not given" (it used to fail validation).
+  displayName: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().trim().min(1).max(50).optional()),
 });
 
 export const POST = route(async (req) => {
