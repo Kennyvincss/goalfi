@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { configuredSources } from "@/lib/server/accounts";
 
 const DIFF: Record<string, { label: string; cls: string }> = {
   easy: { label: "Easy", cls: "border-yes/40 text-yes" },
@@ -27,7 +28,7 @@ export function SuggestionCard({ s, communityId }: { s: AppSuggestion; community
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="muted">{length(s.durationDays)}</Badge>
           <DifficultyBadge d={s.difficulty} />
-          <Badge variant="muted">Verified by {metricSourceLabel(m)}</Badge>
+          <Badge variant="muted">Verified by {metricSourceLabel(m, configuredSources())}</Badge>
           {m.easyToGame && <Badge variant="outline" className="border-warning text-warning" title={m.easyToGame}>Easier to game</Badge>}
         </div>
         <CardTitle className="text-base">{s.title}</CardTitle>

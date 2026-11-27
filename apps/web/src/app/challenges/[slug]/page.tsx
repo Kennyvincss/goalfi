@@ -19,7 +19,7 @@ import { MarketSetupPanel } from "./_panels/market-setup-panel";
 import { JoinButton } from "./_panels/join-button";
 import { EvidenceForm } from "./_panels/evidence-form";
 import { StartNowPanel } from "./_panels/start-now";
-import { accountsConfig } from "@/lib/server/accounts";
+import { accountsConfig, configuredSources } from "@/lib/server/accounts";
 import { EvidenceList } from "./_panels/evidence-list";
 import { ResolutionPanel } from "./_panels/resolution-panel";
 
@@ -68,7 +68,8 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
   const hybrid = c.verificationMethod === "HYBRID";
   const metric = app ? appMetric(c.appMetric) : null;
   const personal = !!metric && metric.source !== "level";
-  const providerName = metric ? metricSourceLabel(metric) : "";
+  const shownSources = configuredSources();
+  const providerName = metric ? metricSourceLabel(metric, shownSources) : "";
   const configured = accountsConfig()?.providers ?? {};
   const sources = metric ? metricProviders(metric).filter((p): p is AccountProviderId => p in configured) : [];
   const ready = personal && user ? await readyAccounts(ctx, user.id, metric!) : [];
@@ -129,7 +130,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
           <CardHeader><CardTitle>Verification & disputes</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-sm">
             {app && (
-              <p className="flex items-center gap-2"><Activity className="size-4 shrink-0 text-primary" />{hybrid ? "Watch or proof" : "Verified automatically"}: {measuredBy(c.appMetric, c.appDailyTarget)}.{personal ? " Data that syncs up to 2 hours after the end still counts." : ""}</p>
+              <p className="flex items-center gap-2"><Activity className="size-4 shrink-0 text-primary" />{hybrid ? "Watch or proof" : "Verified automatically"}: {measuredBy(c.appMetric, c.appDailyTarget, shownSources)}.{personal ? " Data that syncs up to 2 hours after the end still counts." : ""}</p>
             )}
             {hybrid && <p className="flex items-center gap-2"><ShieldCheck className="size-4 shrink-0 text-primary" />No connected account? Upload proof instead: {c.requiredApprovals} of {verifiers.length} verifiers must approve it.</p>}
             {!app && (

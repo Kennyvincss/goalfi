@@ -428,6 +428,7 @@ describe("several sources per metric and watch-or-proof rules", () => {
     expect(metricProviders(M.steps)).toEqual(["GOOGLE_HEALTH", "WITHINGS", "OURA"]);
     expect(metricSourceLabel(M.steps)).toBe("Google Health, Withings or Oura");
     expect(metricSourceLabel(M.github_contributions)).toBe("GitHub");
+    expect(metricSourceLabel(M.steps, new Set(["GOOGLE_HEALTH", "WITHINGS"]))).toBe("Google Health or Withings"); // Oura not set up: not named
     expect(combineDaily(M.steps, [7000, 9000])).toBe(9000);
     expect(combineDaily(M.wake_time, [400, 380])).toBe(380);
   });

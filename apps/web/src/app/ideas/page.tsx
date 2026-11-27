@@ -3,7 +3,8 @@ import { APP_METRICS, CHALLENGE_TEMPLATES, metricSourceLabel, type AppSuggestion
 import { prisma } from "@goalfi/db";
 import { SuggestionCard, TemplateCard } from "@/components/ideas/idea-card";
 import { getCurrentUser } from "@/lib/server/auth";
-import { accountsConfig } from "@/lib/server/accounts";
+import { accountsConfig, configuredSources } from "@/lib/server/accounts";
+import { ACCOUNT_PROVIDERS, PROVIDER_INFO } from "@goalfi/core";
 import { availableMetrics, communitySuggestions } from "@goalfi/services";
 import { adminCommunities, personalIdeas } from "@/lib/server/ideas";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,9 @@ export default async function Ideas({ searchParams }: { searchParams: Promise<{ 
   const categories = await prisma.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" }, select: { slug: true, name: true } });
   const catName = new Map(categories.map((c) => [c.slug, c.name]));
 
+  // Only name services that are set up on this site.
+  const names = ACCOUNT_PROVIDERS.filter((p) => configuredSources().has(p)).map((p) => (p === "GOOGLE_HEALTH" ? "Google Health (Fitbit, Pixel Watch)" : PROVIDER_INFO[p].name));
+  const connectable = names.length <= 1 ? names[0] : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
   let body: React.ReactNode;
   if (tab === "for-you") {
     const groups = personal.map((g) => ({ ...g, ideas: g.ideas.filter(keep) })).filter((g) => g.ideas.length);
@@ -50,12 +54,12 @@ export default async function Ideas({ searchParams }: { searchParams: Promise<{ 
       <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"><Link className="text-primary" href="/login?next=/ideas">Sign in</Link> and connect an account to get ideas built from your own activity.</p>
     ) : personal.length === 0 ? (
       <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        Connect Google Health (Fitbit, Pixel Watch), GitHub or Lichess in <Link className="text-primary" href="/settings#accounts">Settings → Connected accounts</Link> and ideas built from your real activity appear here. Until then, browse <Link className="text-primary" href={link({ tab: "anyone" })}>ideas anyone can do</Link>.
+        Connect {connectable || "an account"} in <Link className="text-primary" href="/settings#accounts">Settings → Connected accounts</Link> and ideas built from your real activity appear here. Until then, browse <Link className="text-primary" href={link({ tab: "anyone" })}>ideas anyone can do</Link>.
       </p>
     ) : (
       groups.map((g) => (
         <section key={g.metric} className="space-y-3">
-          <h2 className="text-lg font-semibold">{APP_METRICS[g.metric].label} <span className="text-sm font-normal text-muted-foreground">· {metricSourceLabel(APP_METRICS[g.metric])} · {g.days ? `based on your last ${g.days} days` : "starting targets until your data syncs"}</span></h2>
+          <h2 className="text-lg font-semibold">{APP_METRICS[g.metric].label} <span className="text-sm font-normal text-muted-foreground">· {metricSourceLabel(APP_METRICS[g.metric], configuredSources())} · {g.days ? `based on your last ${g.days} days` : "starting targets until your data syncs"}</span></h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{g.ideas.map((s) => <SuggestionCard key={s.id} s={s} />)}</div>
         </section>
       ))
