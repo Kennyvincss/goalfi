@@ -13,11 +13,14 @@ const PRIVACY: Record<string, string> = {
   LICHESS: "Read-only. GoalFi reads your finished games and puzzle results. Daily counts are shown to other participants in challenges you join. No Lichess app setup needed.",
 };
 
-/** Rows for the Connected accounts UI: every provider, configured or not, with the user's account. */
+/**
+ * Rows for the Connected accounts UI: services set up on this site, plus any the user is still
+ * connected to (so they can disconnect). Services that aren't set up are hidden.
+ */
 export async function accountRows(userId: string): Promise<AccountRow[]> {
   const cfg = accountsConfig();
   const accounts = await listAccounts(services(), userId);
-  return ACCOUNT_PROVIDERS.map((p) => {
+  return ACCOUNT_PROVIDERS.filter((p) => !!cfg?.providers[p] || accounts.some((a) => a.provider === p)).map((p) => {
     const a = accounts.find((x) => x.provider === p);
     return {
       slug: providerSlug(p),

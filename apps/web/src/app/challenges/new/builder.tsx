@@ -83,27 +83,27 @@ function dayStart(day: string, add = 0): string {
 /** Last whole local day covered by an end instant (the end is midnight after it). */
 const lastDayOf = (end: string) => toLocalInput(new Date(new Date(end).getTime() - 60_000)).slice(0, 10);
 
-function appRules(id: AppMetricId): string {
+function appRules(id: AppMetricId, shown?: Set<string>): string {
   const m = APP_METRICS[id];
   if (m.source === "level") return `${m.label} is counted automatically by GoalFi${m.provider === "TELEGRAM" ? " from the community’s linked Telegram group" : ""}. The count when the challenge ends decides the outcome.`;
-  return `${m.description} is read automatically from each participant’s connected ${metricSourceLabel(m)} account. Only activity on the challenge days counts. Data that syncs up to 2 hours after the end still counts.`;
+  return `${m.description} is read automatically from each participant’s connected ${metricSourceLabel(m, shown)} account. Only activity on the challenge days counts. Data that syncs up to 2 hours after the end still counts.`;
 }
-function appEvidence(id: AppMetricId): string {
+function appEvidence(id: AppMetricId, shown?: Set<string>): string {
   const m = APP_METRICS[id];
-  return m.source === "level" ? `${m.label}, counted automatically by GoalFi.` : `Daily ${m.label.toLowerCase()} synced automatically from each participant’s ${metricSourceLabel(m)} account.`;
+  return m.source === "level" ? `${m.label}, counted automatically by GoalFi.` : `Daily ${m.label.toLowerCase()} synced automatically from each participant’s ${metricSourceLabel(m, shown)} account.`;
 }
 /** What "watch or proof" participants without a connected account upload. */
-function proofEvidence(id: AppMetricId): string {
+function proofEvidence(id: AppMetricId, shown?: Set<string>): string {
   const m = APP_METRICS[id];
-  return `No connected ${metricSourceLabel(m)} account? Upload a screenshot from any fitness app or device showing the date and your ${m.label.toLowerCase()}.`;
+  return `No connected ${metricSourceLabel(m, shown)} account? Upload a screenshot from any fitness app or device showing the date and your ${m.label.toLowerCase()}.`;
 }
-const isAppText = (t: string) => (Object.keys(APP_METRICS) as AppMetricId[]).some((id) => t === appRules(id) || t === appEvidence(id) || t === proofEvidence(id));
+const isAppText = (t: string, shown?: Set<string>) => (Object.keys(APP_METRICS) as AppMetricId[]).some((id) => [appRules, appEvidence, proofEvidence].some((fn) => t === fn(id) || t === fn(id, shown)));
 const toTime = (mins: number) => formatMetricValue(APP_METRICS.wake_time, mins);
 const fromTime = (v: string) => { const [h, m] = v.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 
 export type BuilderSuggestion = AppSuggestion & { communityId?: string };
 
-function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean): FormState {
+function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean, shown?: Set<string>): FormState {
   const base = initialState();
   const today = toLocalInput(new Date()).slice(0, 10);
   const r = s.successRule;
@@ -111,7 +111,7 @@ function fromSuggestion(s: BuilderSuggestion, marketsAvailable: boolean): FormSt
     ...base,
     templateId: `app:${s.id}`, title: s.title, description: s.description, categorySlug: APP_METRICS[s.metric].category,
     communityId: s.communityId ?? "", visibility: s.communityId ? "COMMUNITY" : "PUBLIC", kind: s.scope === "group" ? "GROUP" : "PERSONAL",
-    rules: appRules(s.metric), successCriteria: s.successCriteria, evidenceReq: appEvidence(s.metric), verification: "CONNECTED_APP", appMetric: s.metric,
+    rules: appRules(s.metric, shown), successCriteria: s.successCriteria, evidenceReq: appEvidence(s.metric, shown), verification: "CONNECTED_APP", appMetric: s.metric,
     startDate: dayStart(today), endDate: dayStart(today, s.durationDays),
     ruleType: r.type, unit: APP_METRICS[s.metric].unit,
     threshold: r.type === "individual_threshold" ? r.threshold : base.threshold,
@@ -238,7 +238,7 @@ export function ChallengeBuilder({
   const initialTemplate = initialTemplateId ? templates.find((t) => t.id === initialTemplateId) ?? null : null;
   const [step, setStep] = useState(suggestion || initialTemplate ? 1 : 0);
   const [f, setF] = useState<FormState>(() =>
-    suggestion ? fromSuggestion(suggestion, marketsAvailable)
+    suggestion ? fromSuggestion(suggestion, marketsAvailable, new Set(Object.keys(apps).filter((k) => apps[k]?.available)))
     : initialTemplate ? fromTemplate(initialTemplate, marketsAvailable)
     : { ...initialState(), marketType: marketsAvailable ? "BINARY" : "NONE" });
   const [ideaCategory, setIdeaCategory] = useState<string>("all");
@@ -252,6 +252,9 @@ export function ChallengeBuilder({
   const appOnly = f.verification === "CONNECTED_APP";
   const metric = APP_METRICS[f.appMetric];
   const metricAvailable = (id: AppMetricId) => metricProviders(APP_METRICS[id]).some((p) => apps[p]?.available);
+  /** Services set up on this site, for labels: switched-off ones aren't named. */
+  const shown = new Set(Object.keys(apps).filter((k) => apps[k]?.available));
+  const sourcesOf = (id: AppMetricId) => metricSourceLabel(APP_METRICS[id], shown);
   const metricConnected = (id: AppMetricId) => metricProviders(APP_METRICS[id]).some((p) => apps[p]?.connected);
   const anyAppAvailable = (Object.keys(APP_METRICS) as AppMetricId[]).some(metricAvailable);
   /** Switch to app verification and/or another metric, keeping the form consistent with what the metric allows. */
@@ -268,9 +271,9 @@ export function ChallengeBuilder({
         ...s, verification, appMetric: id, unit: m.unit, ruleType,
         minParticipants: m.source === "level" ? 1 : s.minParticipants,
         dailyTarget: s.appMetric === id ? s.dailyTarget : m.daily.default,
-        rules: !s.rules || isAppText(s.rules) ? appRules(id) : s.rules,
+        rules: !s.rules || isAppText(s.rules, shown) ? appRules(id, shown) : s.rules,
         // "Watch or proof" keeps verifiers and a review deadline for the uploads.
-        evidenceReq: hybrid ? (!s.evidenceReq || isAppText(s.evidenceReq) ? proofEvidence(id) : s.evidenceReq) : appEvidence(id),
+        evidenceReq: hybrid ? (!s.evidenceReq || isAppText(s.evidenceReq, shown) ? proofEvidence(id, shown) : s.evidenceReq) : appEvidence(id, shown),
         hasReviewDeadline: hybrid, autoSettle: true, categorySlug: s.templateId ? s.categorySlug : m.category,
         startDate: dayStart(first), endDate: dayStart(last < first ? first : last, 1),
       };
@@ -284,7 +287,7 @@ export function ChallengeBuilder({
     }
     setF((s) => (s.verification === v ? s : {
       ...s, verification: v, hasReviewDeadline: true,
-      evidenceReq: isAppText(s.evidenceReq) ? "" : s.evidenceReq, rules: isAppText(s.rules) ? "" : s.rules,
+      evidenceReq: isAppText(s.evidenceReq, shown) ? "" : s.evidenceReq, rules: isAppText(s.rules, shown) ? "" : s.rules,
     }));
   }
 
@@ -388,7 +391,7 @@ export function ChallengeBuilder({
             {anyAppAvailable && (
               <Link href="/connected" className="block rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm hover:border-primary">
                 <b>Challenges that verify themselves.</b>{" "}
-                Connect Google Health, GitHub or Lichess and get challenges suggested from your real activity, or grow a community: no verifiers needed.
+                Connect {[...shown].filter((k) => k in PROVIDER_INFO && PROVIDER_INFO[k as keyof typeof PROVIDER_INFO].connectable).map((k) => PROVIDER_INFO[k as keyof typeof PROVIDER_INFO].name).join(", ") || "an account"} and get challenges suggested from your real activity, or grow a community: no verifiers needed.
               </Link>
             )}
             {picks.length > 0 && (
@@ -399,7 +402,7 @@ export function ChallengeBuilder({
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {picks.map((s) => (
-                    <button key={s.id} onClick={() => { setF(fromSuggestion(s, marketsAvailable)); setStep(1); }} className="rounded-lg border border-primary/30 p-4 text-left hover:border-primary">
+                    <button key={s.id} onClick={() => { setF(fromSuggestion(s, marketsAvailable, shown)); setStep(1); }} className="rounded-lg border border-primary/30 p-4 text-left hover:border-primary">
                       <div className="flex items-center justify-between gap-2"><span className="font-medium">{s.title}</span><Badge variant="muted">{s.durationDays === 1 ? "Today" : `${s.durationDays}d`}</Badge></div>
                       <div className="mt-1 text-sm text-muted-foreground">{s.description}</div>
                       <div className="mt-2 text-xs text-muted-foreground">{DIFFICULTY_LABEL[s.difficulty]} · verifies itself · opens at {s.initialPriceBps / 100}% YES</div>
@@ -491,11 +494,13 @@ export function ChallengeBuilder({
                 <div className="space-y-1.5">
                   <Label htmlFor="metric">What is measured</Label>
                   <select id="metric" className={select} value={f.appMetric} onChange={(e) => chooseApp(e.target.value as AppMetricId)}>
-                    {(["GOOGLE_HEALTH", "GITHUB", "LICHESS", "GOALFI", "TELEGRAM"] as const).map((p) => (
-                      <optgroup key={p} label={p === "GOOGLE_HEALTH" ? "Watches & rings (Google Health, Withings, Oura)" : `${PROVIDER_INFO[p].name}${apps[p]?.available ? "" : " (not set up on this server)"}`}>
-                        {(Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => APP_METRICS[id].provider === p).map((id) => (
-                          <option key={id} value={id} disabled={!metricAvailable(id) || (f.verification === "HYBRID" && (APP_METRICS[id].source === "level" || APP_METRICS[id].better === "lower"))}>
-                            {APP_METRICS[id].label}: {APP_METRICS[id].description}{p === "GOOGLE_HEALTH" ? ` (${metricSourceLabel(APP_METRICS[id])})` : ""}
+                    {(["GOOGLE_HEALTH", "GITHUB", "LICHESS", "GOALFI", "TELEGRAM"] as const)
+                      .filter((p) => (Object.keys(APP_METRICS) as AppMetricId[]).some((id) => APP_METRICS[id].provider === p && metricAvailable(id)))
+                      .map((p) => (
+                      <optgroup key={p} label={p === "GOOGLE_HEALTH" ? `Watches & rings (${sourcesOf("steps")})` : PROVIDER_INFO[p].name}>
+                        {(Object.keys(APP_METRICS) as AppMetricId[]).filter((id) => APP_METRICS[id].provider === p && metricAvailable(id)).map((id) => (
+                          <option key={id} value={id} disabled={(f.verification === "HYBRID" && (APP_METRICS[id].source === "level" || APP_METRICS[id].better === "lower"))}>
+                            {APP_METRICS[id].label}: {APP_METRICS[id].description}{p === "GOOGLE_HEALTH" ? ` (${sourcesOf(id)})` : ""}
                           </option>
                         ))}
                       </optgroup>
@@ -503,7 +508,7 @@ export function ChallengeBuilder({
                   </select>
                   {metric.source !== "level" && !metricConnected(f.appMetric) && (
                     <p className="text-xs text-muted-foreground">
-                      You haven’t connected {metricSourceLabel(metric)}. You can still create this challenge{appOnly ? ", but everyone (you included) must connect before joining" : "; without it you’d upload proof like anyone else"}.{" "}
+                      You haven’t connected {sourcesOf(f.appMetric)}. You can still create this challenge{appOnly ? ", but everyone (you included) must connect before joining" : "; without it you’d upload proof like anyone else"}.{" "}
                       <Link href="/settings#accounts" className="text-primary underline-offset-4 hover:underline">Connect now</Link>
                     </p>
                   )}
@@ -547,8 +552,8 @@ export function ChallengeBuilder({
               <p className="text-xs text-muted-foreground">{app ? `The final outcome is computed from the synced ${metric.label.toLowerCase()} using this rule.` : "The final outcome is computed from approved evidence using this rule."}</p>
             </fieldset>
             {appOnly ? (
-              <p className="rounded-md bg-muted px-3 py-2 text-sm"><b>Evidence:</b> {appEvidence(f.appMetric)} Nobody uploads anything.</p>
-            ) : <div className="space-y-1.5">{app && <p className="text-xs text-muted-foreground">Participants with a connected {metricSourceLabel(metric)} account sync automatically. Everyone else uploads this:</p>}<Label htmlFor="ev">Evidence requirements</Label><Textarea id="ev" value={f.evidenceReq} onChange={(e) => set("evidenceReq", e.target.value)} className="min-h-16" placeholder="e.g. Screenshot from Strava showing date and distance." />{field("evidenceReq") ?? hint("At least 5 characters.")}</div>}
+              <p className="rounded-md bg-muted px-3 py-2 text-sm"><b>Evidence:</b> {appEvidence(f.appMetric, shown)} Nobody uploads anything.</p>
+            ) : <div className="space-y-1.5">{app && <p className="text-xs text-muted-foreground">Participants with a connected {sourcesOf(f.appMetric)} account sync automatically. Everyone else uploads this:</p>}<Label htmlFor="ev">Evidence requirements</Label><Textarea id="ev" value={f.evidenceReq} onChange={(e) => set("evidenceReq", e.target.value)} className="min-h-16" placeholder="e.g. Screenshot from Strava showing date and distance." />{field("evidenceReq") ?? hint("At least 5 characters.")}</div>}
             <div className="space-y-1.5"><Label htmlFor="part">Participation requirements <span className="text-muted-foreground">(optional)</span></Label><Input id="part" value={f.participationReq} onChange={(e) => set("participationReq", e.target.value)} /></div>
           </div>
         )}
@@ -584,7 +589,7 @@ export function ChallengeBuilder({
             )}
             {appOnly ? (
               <>
-                <p className="rounded-md bg-muted px-3 py-2 text-sm">{`No verifiers needed: ${metric.label.toLowerCase()} ${metric.source === "level" ? "is counted by GoalFi" : `syncs from ${metricSourceLabel(metric)}`} and counts automatically. Participants can still dispute a synced value within the dispute window.`}</p>
+                <p className="rounded-md bg-muted px-3 py-2 text-sm">{`No verifiers needed: ${metric.label.toLowerCase()} ${metric.source === "level" ? "is counted by GoalFi" : `syncs from ${sourcesOf(f.appMetric)}`} and counts automatically. Participants can still dispute a synced value within the dispute window.`}</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5"><Label htmlFor="disp">Dispute window (hours)</Label><Input id="disp" type="number" min={1} max={336} value={f.disputeWindowHours} onChange={(e) => set("disputeWindowHours", Number(e.target.value))} /></div>
                   <div className="space-y-1.5"><Label htmlFor="max">Max participants</Label><Input id="max" type="number" min={1} value={f.maxParticipants} onChange={(e) => set("maxParticipants", e.target.value)} placeholder="No limit" /></div>
@@ -677,7 +682,7 @@ export function ChallengeBuilder({
               <dt className="text-muted-foreground">Title</dt><dd>{f.title || "—"}</dd>
               <dt className="text-muted-foreground">When</dt><dd>{f.startNow && !app ? "Immediately" : new Date(f.startDate).toLocaleString()} → {new Date(f.endDate).toLocaleString()}</dd>
               <dt className="text-muted-foreground">Success</dt><dd>{f.successCriteria || "—"}</dd>
-              <dt className="text-muted-foreground">Verification</dt><dd>{app ? `${appOnly ? "Automatic" : "Watch or proof"}: ${metric.label.toLowerCase()} from ${metricSourceLabel(metric)}${f.ruleType === "daily_completion" ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, f.dailyTarget)})` : ""}${appOnly ? "" : `; uploads checked by ${f.requiredApprovals} of ${verifierCount} verifiers`}` : `${f.requiredApprovals} of ${verifierCount} verifiers`} · {f.disputeWindowHours}h disputes</dd>
+              <dt className="text-muted-foreground">Verification</dt><dd>{app ? `${appOnly ? "Automatic" : "Watch or proof"}: ${metric.label.toLowerCase()} from ${sourcesOf(f.appMetric)}${f.ruleType === "daily_completion" ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, f.dailyTarget)})` : ""}${appOnly ? "" : `; uploads checked by ${f.requiredApprovals} of ${verifierCount} verifiers`}` : `${f.requiredApprovals} of ${verifierCount} verifiers`} · {f.disputeWindowHours}h disputes</dd>
               <dt className="text-muted-foreground">Settlement</dt><dd>{f.autoSettle ? "Automatic" : "Admin confirms"}{appOnly ? " · after late data syncs (2h after the end)" : f.hasReviewDeadline ? ` · review deadline ${f.reviewDeadlineHours}h after the end (unreviewed = rejected)` : " · no review deadline"}</dd>
               <dt className="text-muted-foreground">Market</dt><dd>{f.marketType === "NONE" ? "None" : `YES/NO opening at ${f.initialPricePct}% with ${f.initialLiquidityUsdc} ${collateralSymbol}`}</dd>
             </dl>

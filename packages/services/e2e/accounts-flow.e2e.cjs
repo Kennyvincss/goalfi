@@ -46,7 +46,8 @@ async function signup(name) {
   await page.goto(B + "/settings");
   ok("settings shows the connected account", await page.locator("#accounts").getByText("Connected", { exact: true }).isVisible());
   await page.screenshot({ path: path.join(OUT, "settings-accounts.png"), fullPage: true });
-  ok("settings lists Withings and Oura", (await page.locator("#accounts").getByText("Withings", { exact: true }).isVisible()) && (await page.locator("#accounts").getByText("Oura", { exact: true }).isVisible()));
+  ok("settings shows only services set up here", (await page.locator("#accounts").getByText("Withings", { exact: true }).isVisible())
+    && (await page.locator("#accounts").getByText("Oura", { exact: true }).count()) === 0 && (await page.locator("#accounts").getByText("GitHub", { exact: true }).count()) === 0);
   await page.goto(B + "/connected");
   ok("connected page shows synced days", await page.getByText("10,400").isVisible());
   ok("suggestions use the real history", await page.getByText("based on your last 6 complete days").isVisible());
@@ -77,7 +78,7 @@ async function signup(name) {
   await page.getByRole("button", { name: "Confirm & publish" }).click();
   await page.waitForTimeout(1500);
   await page.reload();
-  ok("challenge says it verifies automatically", await page.getByText(/Verified automatically: Steps, synced from each participant’s Google Health, Withings or Oura account/).isVisible());
+  ok("challenge says it verifies automatically", await page.getByText(/Verified automatically: Steps, synced from each participant’s Google Health or Withings account/).isVisible());
   ok("no evidence upload form", (await page.getByText("Submit evidence").count()) === 0);
   const slug = page.url().split("/challenges/")[1];
 

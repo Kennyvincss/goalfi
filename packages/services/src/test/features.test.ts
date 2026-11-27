@@ -72,7 +72,8 @@ describe("Withings and Oura parsing", () => {
 });
 
 describe("new features", () => {
-  const t0 = new Date(Date.UTC(2026, 10, 25, 6)); // Wednesday 06:00 UTC
+  // Today at 06:00 UTC (not a fixed date: challenge validation compares against the real clock).
+  const t0 = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 6));
   const { ctx, gateway, clock, advance } = makeCtx(t0);
   let admin: Actor, verifier: Actor, ann: Actor, ben: Actor, cat: Actor;
   const today = iso(t0);

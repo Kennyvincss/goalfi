@@ -110,9 +110,11 @@ export function metricProviders(m: AppMetricDef): MetricProvider[] {
   return [m.provider, ...(m.alsoFrom ?? [])];
 }
 
-/** "Google Health, Withings or Oura". */
-export function metricSourceLabel(m: AppMetricDef): string {
-  const names = metricProviders(m).map((p) => PROVIDER_INFO[p].name);
+/** "Google Health, Withings or Oura". With `only`, just the sources set up on this server. */
+export function metricSourceLabel(m: AppMetricDef, only?: Set<string>): string {
+  const all = metricProviders(m);
+  const shown = only ? all.filter((p) => only.has(p)) : all;
+  const names = (shown.length ? shown : all).map((p) => PROVIDER_INFO[p].name);
   return names.length <= 1 ? names[0]! : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
 }
 

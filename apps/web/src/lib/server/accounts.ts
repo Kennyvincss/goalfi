@@ -11,3 +11,9 @@ export function accountsConfig(): AccountsConfig | null {
 }
 
 export const ACCOUNT_STATE_COOKIE = "goalfi_account_state";
+
+/** Sources this site can use: configured accounts, plus GoalFi and Telegram counts. */
+export function configuredSources(): Set<string> {
+  const cfg = accountsConfig();
+  return new Set<string>([...Object.keys(cfg?.providers ?? {}), "GOALFI", ...(cfg?.telegram ? ["TELEGRAM"] : [])]);
+}

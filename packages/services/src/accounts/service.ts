@@ -417,9 +417,9 @@ export async function accountsTick(ctx: ServiceContext, cfg: AccountsConfig | nu
 }
 
 /** Human summary of how an app-verified challenge is measured. */
-export function measuredBy(metricId: string | null, dailyTarget: number | null): string | null {
+export function measuredBy(metricId: string | null, dailyTarget: number | null, sources?: Set<string>): string | null {
   const metric = appMetric(metricId);
   if (!metric) return null;
-  const who = metric.source === "level" ? `counted by ${name(metric.provider)}` : `synced from each participant’s ${metricSourceLabel(metric)} account`;
+  const who = metric.source === "level" ? `counted by ${name(metric.provider)}` : `synced from each participant’s ${metricSourceLabel(metric, sources)} account`;
   return `${metric.label}, ${who}${dailyTarget ? ` (a day counts ${metric.better === "lower" ? "if you " : "at "}${describeDailyTarget(metric, dailyTarget)})` : ""}`;
 }
