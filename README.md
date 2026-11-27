@@ -65,7 +65,7 @@ the `winning_side` encoding. See `docs/PM_AMM_INTEGRATION.md`.
 
 ## Safety defaults
 
-- Devnet only. Mainnet requires `GOALFI_ENABLE_MAINNET=I_UNDERSTAND_THE_RISKS`, plus security, legal and regulatory review.
+- Devnet only. Mainnet requires `GOALFI_ENABLE_MAINNET=I_UNDERSTAND_THE_RISKS`, plus security, legal and regulatory review. See [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md).
 - Non-custodial: users sign every trade/claim in their own wallet. The platform key only creates and resolves markets,
   and resolution is gated by `@goalfi/core` `evaluateResolution()`.
 - Evidence content, verification votes and audit logs are append-only at the database level.

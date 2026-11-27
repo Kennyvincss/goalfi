@@ -135,6 +135,35 @@ async function signup(name) {
   await p2.goto(`${B}/challenges/${hy.data.slug}`);
   ok("they get the proof upload form and a connect option", (await p2.getByRole("heading", { name: "Submit evidence" }).isVisible()) && (await p2.getByText(/Upload proof below/).isVisible()));
   await p2.screenshot({ path: path.join(OUT, "hybrid-mobile.png"), fullPage: true });
+  // Signing up in the browser lands on the welcome steps.
+  const ctx3 = await b.newContext({ viewport: { width: 390, height: 844 } });
+  const p3 = await ctx3.newPage();
+  await p3.goto(B + "/signup");
+  await p3.getByLabel("Username").fill(`nw${S}`);
+  await p3.getByLabel("Email").fill(`nw${S}@example.com`);
+  await p3.getByLabel("Password").fill("correct horse battery");
+  await p3.getByRole("button", { name: /sign up|create account/i }).click();
+  await p3.waitForURL(/\/welcome/, { timeout: 15000 }).catch(() => {});
+  ok("sign-up lands on the welcome steps", p3.url().includes("/welcome"), p3.url());
+  await p3.screenshot({ path: path.join(OUT, "welcome-mobile.png"), fullPage: true });
+  ok("welcome fits a phone", !(await p3.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)));
+  await ctx3.close();
+
+  // Getting started, badges and the public profile.
+  await page.goto(B + "/welcome?step=1");
+  ok("welcome step 1 offers connecting or skipping", await page.getByRole("link", { name: /Continue|Skip: I don’t have one/ }).isVisible());
+  await page.goto(B + "/welcome?step=2");
+  ok("welcome step 2 suggests ideas", (await page.getByRole("link", { name: "Create this challenge" }).count()) >= 6);
+  await page.goto(B + "/dashboard");
+  ok("dashboard shows getting started and badges", (await page.getByText(/Getting started · \d\/4/).isVisible()) && (await page.getByText("Up next").isVisible()));
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await page.waitForTimeout(1200);
+  await page.reload();
+  ok("dismissed getting started stays hidden", (await page.getByText(/Getting started ·/).count()) === 0);
+  await page.goto(`${B}/profile/${walker.username}`);
+  ok("profile shows a track record", (await page.getByText("As a participant").isVisible()) && (await page.getByText("Fair play").isVisible()) && (await page.getByText(/Never flagged/).isVisible()));
+  await page.goto(`${B}/challenges/${slug}`);
+  ok("challenge shows the host's record", await page.getByText(/hosted \d+/).first().isVisible());
   ok("no client-side errors", errors.length === 0, errors.join(" | "));
   await b.close();
 })();

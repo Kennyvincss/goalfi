@@ -32,6 +32,8 @@ model User {
   reputationScore  Int          @default(0) @map("reputation_score")
   role             PlatformRole @default(USER)
   suspendedAt      DateTime?
+  /// When the user finished (or dismissed) the getting-started steps.
+  onboardedAt      DateTime?    @map("onboarded_at")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt
 

@@ -19,6 +19,7 @@ import { MarketSetupPanel } from "./_panels/market-setup-panel";
 import { JoinButton } from "./_panels/join-button";
 import { EvidenceForm } from "./_panels/evidence-form";
 import { StartNowPanel } from "./_panels/start-now";
+import { CreatorRecord } from "@/components/profile/creator-record";
 import { accountsConfig, configuredSources } from "@/lib/server/accounts";
 import { EvidenceList } from "./_panels/evidence-list";
 import { ResolutionPanel } from "./_panels/resolution-panel";
@@ -109,7 +110,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
           </div>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">{c.title}</h1>
           <p className="mt-3 whitespace-pre-line text-muted-foreground">{c.description}</p>
-          <p className="mt-2 text-sm text-muted-foreground">Created by <Link className="hover:text-foreground" href={`/profile/${c.creator.username}`}>@{c.creator.username}</Link></p>
+          <div className="mt-2"><CreatorRecord userId={c.creatorId} username={c.creator.username} /></div>
         </div>
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
           <span className="flex items-center gap-1.5"><CalendarDays className="size-4 text-muted-foreground" />{fmt(c.startDate)} → {fmt(c.endDate)} · {timeRemaining(c.endDate)}</span>

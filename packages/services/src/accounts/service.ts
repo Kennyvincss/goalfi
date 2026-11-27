@@ -21,6 +21,7 @@ import { link, trustDays, type Actor, type ServiceContext } from "../context";
 import { conflict, invalid } from "../errors";
 import { notify } from "../notifications";
 import { audit } from "../audit";
+import { applyStreak } from "../reputation";
 import type { AccountsConfig } from "./config";
 import { decryptToken, encryptToken } from "./crypto";
 import { GOOGLE_SLEEP_SCOPE } from "./google-health";
@@ -226,6 +227,7 @@ async function upsertEvidence(
   date: string, value: number, current: { id: string; progressValue: unknown } | null, source: string = metric.provider,
 ): Promise<number> {
   if (current && Number(current.progressValue) === value) return 0;
+  const isNewDay = !current;
   await ctx.db.evidence.create({
     data: {
       challengeId: c.id, participantId, userId,
@@ -236,6 +238,9 @@ async function upsertEvidence(
       supersedesId: current?.id ?? null,
     },
   });
+  // Synced days advance streaks in recurring challenges, like approved uploads do.
+  if (isNewDay && metric.source !== "level" && c.recurrence !== "NONE")
+    await applyStreak(ctx.db, { userId, challengeId: c.id, recurrence: c.recurrence, activityDate: new Date(`${date}T00:00:00Z`) });
   return 1;
 }
 
