@@ -5,7 +5,7 @@ import type { Actor, ServiceContext } from "./context";
 /** A user's public track record, computed from real activity. */
 export async function trackRecord(ctx: ServiceContext, userId: string): Promise<TrackRecord> {
   const db = ctx.db;
-  const [joined, completed, failed, streaks, hosted, hostedSettled, hostedYes, marketsHosted, fair, overturned, selfBet, appDone, user] = await Promise.all([
+  const [joined, completed, failed, streaks, hosted, hostedSettled, hostedYes, marketsHosted, fair, overturned, selfBet, appDone, user, hostTrades] = await Promise.all([
     db.participant.count({ where: { userId } }),
     db.participant.count({ where: { userId, status: "COMPLETED" } }),
     db.participant.count({ where: { userId, status: "FAILED" } }),
@@ -19,12 +19,13 @@ export async function trackRecord(ctx: ServiceContext, userId: string): Promise<
     db.participant.count({ where: { userId, betAgainstAt: { not: null } } }),
     db.participant.count({ where: { userId, status: "COMPLETED", challenge: { verificationMethod: { in: ["CONNECTED_APP", "HYBRID"] } } } }),
     db.user.findUnique({ where: { id: userId }, select: { reputationScore: true } }),
+    db.reputationEvent.count({ where: { userId, activityType: "PENALTY_HOST_TRADED" } }),
   ]);
   return {
     joined, completed, failed,
     currentStreak: streaks._max.current ?? 0, longestStreak: streaks._max.longest ?? 0,
     hosted, hostedSettled, hostedYes, marketsHosted,
-    fairVerifications: fair, overturned, selfBetFlags: selfBet, appVerifiedCompleted: appDone,
+    fairVerifications: fair, overturned, selfBetFlags: selfBet, hostTrades, appVerifiedCompleted: appDone,
     reputation: user?.reputationScore ?? 0,
   };
 }

@@ -15,7 +15,13 @@ export async function CreatorRecord({ userId, username }: { userId: string; user
       {rate !== null && ` · ${Math.round(rate * 100)}% success as a participant`}
       {top && ` · ${top.emoji} ${top.label}`}
       {" · "}
-      {r.selfBetFlags ? <span className="text-no">⚠ bet against own challenge {r.selfBetFlags}×</span> : <span>no fair-play flags</span>}
+      {r.selfBetFlags || r.hostTrades ? (
+        <span className="text-no">
+          {r.hostTrades ? `⚠ traded on own market ${r.hostTrades}×` : ""}
+          {r.hostTrades && r.selfBetFlags ? " · " : ""}
+          {r.selfBetFlags ? `⚠ bet against own challenge ${r.selfBetFlags}×` : ""}
+        </span>
+      ) : <span>no fair-play flags</span>}
     </p>
   );
 }

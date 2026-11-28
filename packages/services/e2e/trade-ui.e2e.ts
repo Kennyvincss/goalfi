@@ -67,11 +67,12 @@ async function main() {
   const token = randomBytes(32).toString("base64url");
   const user = await prisma.user.create({ data: { username: `trade_e2e_${Date.now() % 1e6}`, walletAddress: trader.publicKey.toBase58() } });
   await prisma.session.create({ data: { userId: user.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 3600e3) } });
+  const host = await prisma.user.create({ data: { username: `trade_host_${Date.now() % 1e6}` } });
   const cat = await prisma.category.findFirstOrThrow({ where: { slug: "fitness" } });
   const ch = await prisma.challenge.create({
     data: {
       slug: `trade-e2e-${Date.now()}`, title: "Trade e2e challenge", description: "fixture", rules: "r", successCriteria: "At least 1 participant runs 50 km",
-      successRule: { type: "milestone", minCompleters: 1 }, evidenceReq: "e", creatorId: user.id, categoryId: cat.id, status: "ACTIVE",
+      successRule: { type: "milestone", minCompleters: 1 }, evidenceReq: "e", creatorId: host.id, categoryId: cat.id, status: "ACTIVE",
       startDate: new Date(Date.now() - 86400e3), endDate: new Date(endTs * 1000), marketQuestion: "Will the community complete the challenge?",
       market: { create: {
         cluster: "DEVNET", programId: PROGRAM.toBase58(), collateralMint: MINT.toBase58(), marketType: "BINARY", onchainId: onchainId.toString(),
@@ -82,6 +83,7 @@ async function main() {
     },
     include: { market: true },
   });
+  await prisma.participant.create({ data: { challengeId: ch.id, userId: user.id } });
 
   const ATA = { col: getAssociatedTokenAddressSync(MINT, trader.publicKey), yes: getAssociatedTokenAddressSync(yesMint, trader.publicKey), no: getAssociatedTokenAddressSync(noMint, trader.publicKey) };
   const acct = (addr: string): string | null => {
@@ -224,10 +226,21 @@ async function main() {
     state.yesBal -= SIM_OUT;
     state.colBal += 10_000_000n;
 
-    // Fair play: this trader created the challenge, so GoalFi's screen won't let them buy NO.
+    // Fair play: this trader takes part in the challenge, so GoalFi's screen won't let them buy NO.
     await page.getByRole("button", { name: /^NO/ }).first().click();
-    ok("creator can't buy NO on their own challenge", await page.getByText("You created this challenge, so you can only bet on it succeeding (YES).").isVisible());
+    ok("participant can't buy NO on their own challenge", await page.getByText(/You’re taking part in this challenge, so you can only bet on it succeeding/).isVisible());
     await page.getByRole("button", { name: /^YES/ }).first().click();
+
+    // Hosts can't buy at all (YES or NO), but can still sell what they hold.
+    await prisma.challenge.update({ where: { id: ch.id }, data: { creatorId: user.id } });
+    await page.reload();
+    await page.getByRole("tab", { name: "Buy" }).waitFor({ timeout: 15000 });
+    await page.getByText(/You run this challenge/).first().waitFor({ timeout: 15000 }).catch(() => {});
+    ok("host can't buy YES on their own market", await page.getByText(/You run this challenge, so you can’t trade on its market/).isVisible());
+    await page.getByRole("tab", { name: "Sell" }).click();
+    ok("host can still sell", await page.locator("#amt").isVisible() && !(await page.getByText(/You run this challenge/).isVisible()));
+    await page.getByRole("tab", { name: "Buy" }).click();
+    await prisma.challenge.update({ where: { id: ch.id }, data: { creatorId: host.id } });
 
     // Portfolio: positions found by scanning the wallet's token accounts.
     await page.goto(`${B}/portfolio`);
@@ -256,9 +269,10 @@ async function main() {
     await browser.close();
     await prisma.transaction.deleteMany({ where: { userId: user.id } });
     await prisma.market.deleteMany({ where: { challengeId: ch.id } });
+    await prisma.participant.deleteMany({ where: { challengeId: ch.id } });
     await prisma.challenge.delete({ where: { id: ch.id } });
     await prisma.session.deleteMany({ where: { userId: user.id } });
-    await prisma.user.delete({ where: { id: user.id } });
+    await prisma.user.deleteMany({ where: { id: { in: [user.id, host.id] } } });
     await prisma.$disconnect();
   }
 }

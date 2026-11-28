@@ -147,7 +147,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             {easyToGame && <p className="rounded-md bg-warning/10 px-3 py-2 text-warning"><b>Easier to game.</b> {easyToGame}</p>}
             {m && (
               <p className="flex items-start gap-2"><Scale className="mt-0.5 size-4 shrink-0 text-primary" />
-                <span>Fair play: participants and the creator can only bet YES. Anyone found holding NO on their own challenge is flagged below, and loses 50 reputation if they don’t complete it.{flagged.length > 0 && <b className="text-no"> {flagged.length} participant{flagged.length === 1 ? " has" : "s have"} bet against themselves.</b>}</span>
+                <span>Fair play: the creator and co-admins can’t trade on this market at all (funding it is fine). Participants can only bet YES; anyone found holding NO on their own challenge is flagged below, and loses 50 reputation if they don’t complete it.{flagged.length > 0 && <b className="text-no"> {flagged.length} participant{flagged.length === 1 ? " has" : "s have"} bet against themselves.</b>}</span>
               </p>
             )}
             <p className="text-muted-foreground">Evidence: {c.evidenceReq}</p>
@@ -231,6 +231,7 @@ export default async function ChallengePage({ params }: { params: Promise<{ slug
             {!m ? <p className="text-muted-foreground">This challenge has no market.</p> : (
               <>
                 {c.marketQuestion && <p className="font-medium">{c.marketQuestion}</p>}
+                {m.hostTradedAt && <p className="rounded-md bg-no-soft px-3 py-2 text-sm text-no" role="alert"><b>⚠ The host traded on this market.</b> The creator or a co-admin of this challenge bought shares here, which hosts aren’t allowed to do. They lost 50 reputation. Keep it in mind before you trade.</p>}
                 {snap && Number.isFinite(snap.yesPrice) ? <ProbabilityBar yes={snap.yesPrice} /> : <p className="text-muted-foreground">{m.status === "RESOLVED" ? "Resolved." : "Awaiting liquidity."}</p>}
                 <div className="flex justify-between"><span className="text-muted-foreground">Status</span><span>{m.status.replaceAll("_", " ").toLowerCase()}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Trading closes</span><span>{fmt(m.endTs)}</span></div>

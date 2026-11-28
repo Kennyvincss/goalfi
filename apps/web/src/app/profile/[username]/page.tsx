@@ -82,6 +82,9 @@ export default async function Profile({ params }: { params: Promise<{ username: 
             <p className={record.selfBetFlags ? "text-no" : "text-muted-foreground"}>
               {record.selfBetFlags ? `⚠ Bet against their own challenge ${record.selfBetFlags} time${record.selfBetFlags === 1 ? "" : "s"}.` : "Never flagged for betting against themselves."}
             </p>
+            <p className={record.hostTrades ? "text-no" : "text-muted-foreground"}>
+              {record.hostTrades ? `⚠ Traded on a market for a challenge they ran ${record.hostTrades} time${record.hostTrades === 1 ? "" : "s"}.` : "Never traded on a market they ran."}
+            </p>
           </CardContent>
         </Card>
       </div>

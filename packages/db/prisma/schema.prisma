@@ -502,6 +502,8 @@ model Market {
   id                  String       @id @default(cuid())
   /// YES price when holders were last alerted about a big move (null = not yet set).
   lastAlertPrice      Float?
+  /// Set when the challenge's host (creator or co-admin) was found trading on this market.
+  hostTradedAt        DateTime?
   challengeId         String       @unique @map("challenge_id")
   challenge           Challenge    @relation(fields: [challengeId], references: [id], onDelete: Restrict)
   cluster             Cluster
@@ -656,6 +658,7 @@ enum ReputationActivity {
   FAIR_VERIFICATION
   PENALTY_EVIDENCE_OVERTURNED
   PENALTY_SELF_BET
+  PENALTY_HOST_TRADED
 }
 
 model ReputationEvent {

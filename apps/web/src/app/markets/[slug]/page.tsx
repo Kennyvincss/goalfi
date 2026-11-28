@@ -4,7 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { prisma } from "@goalfi/db";
 import { PM_AMM_DEPLOYMENTS } from "@goalfi/chain";
 import { formatUsd } from "@goalfi/core";
-import { challengeAccess, challengeMarketLimits, noBetBlockReason } from "@goalfi/services";
+import { challengeAccess, challengeMarketLimits, tradeRestrictions } from "@goalfi/services";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CategoryIcon } from "@/components/category-icon";
@@ -65,8 +65,10 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
   const points = m.snapshots.filter((s) => Number.isFinite(s.yesPrice)).map((s) => ({ t: s.takenAt.getTime(), yes: s.yesPrice }));
   const lastYes = points.at(-1)?.yes ?? null;
   const limits = await challengeMarketLimits(services(), c.id);
+  const restrict = user ? await tradeRestrictions(services(), user.id, c.id) : { buy: null, no: null };
   const cfg: MarketCfg = {
-    noBlockedReason: user ? await noBetBlockReason(services(), user.id, c.id) : null,
+    buyBlockedReason: restrict.buy,
+    noBlockedReason: restrict.no,
     maxTradeMicro: (BigInt(limits.maxTradeUsdc) * 1_000_000n).toString(),
     easyToGame: limits.easyToGame,
     marketId: m.id, marketAddress: m.marketAddress, authority: m.authority, programId: m.programId, collateralMint: m.collateralMint,
@@ -94,6 +96,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
               Challenge: <Link className="text-primary" href={`/challenges/${c.slug}`}>{c.title}</Link> · {c._count.participants} participants · {m.status === "RESOLVED" ? "resolved" : m.status === "OPEN" || m.status === "AWAITING_LIQUIDITY" ? timeRemaining(m.endTs) : "trading closed"}
             </p>
             <div className="mt-1"><CreatorRecord userId={c.creatorId} username={c.creator.username} /></div>
+            {m.hostTradedAt && <p className="mt-3 rounded-md bg-no-soft px-3 py-2 text-sm text-no" role="alert"><b>⚠ The host traded on this market.</b> The creator or a co-admin of this challenge bought shares here, which hosts aren’t allowed to do. They lost 50 reputation. Keep it in mind before you trade.</p>}
           </div>
 
           <Card>
