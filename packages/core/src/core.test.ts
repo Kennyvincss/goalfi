@@ -450,7 +450,7 @@ describe("several sources per metric and watch-or-proof rules", () => {
 });
 
 describe("badges and track record", () => {
-  const base = { joined: 0, completed: 0, failed: 0, currentStreak: 0, longestStreak: 0, hosted: 0, hostedSettled: 0, hostedYes: 0, marketsHosted: 0, fairVerifications: 0, overturned: 0, selfBetFlags: 0, appVerifiedCompleted: 0, reputation: 0 };
+  const base = { joined: 0, completed: 0, failed: 0, currentStreak: 0, longestStreak: 0, hosted: 0, hostedSettled: 0, hostedYes: 0, marketsHosted: 0, fairVerifications: 0, overturned: 0, selfBetFlags: 0, hostTrades: 0, appVerifiedCompleted: 0, reputation: 0 };
   it("earns badges from real activity only", async () => {
     const { earnedBadges } = await import("./index");
     expect(earnedBadges(base)).toEqual([]);

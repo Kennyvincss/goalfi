@@ -18,7 +18,9 @@ export interface MarketCfg {
   signedIn: boolean;
   /** Outcome recorded by GoalFi when it resolved the market (source of truth for display). */
   winningOutcome: "YES" | "NO" | null;
-  /** Set when the viewer takes part in (or created) the challenge: they may only buy YES here. */
+  /** Set when the viewer hosts the challenge (creator or co-admin): they may not buy at all, only sell. */
+  buyBlockedReason: string | null;
+  /** Set when the viewer takes part in the challenge: they may only buy YES here. */
   noBlockedReason: string | null;
   /** Largest single buy GoalFi's screen allows (micro-units, as a string). */
   maxTradeMicro: string;

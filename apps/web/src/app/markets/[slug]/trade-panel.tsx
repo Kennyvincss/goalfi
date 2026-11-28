@@ -75,7 +75,7 @@ export function TradePanel() {
   const overCollateral = action === "BUY" && holdings && amount !== null && amount > holdings.collateral;
   const maxTrade = BigInt(cfg.maxTradeMicro);
   const overLimit = action === "BUY" && amount !== null && amount > maxTrade;
-  const noBlocked = action === "BUY" && side === "NO" && !!cfg.noBlockedReason;
+  const buyBlocked = action === "BUY" && (cfg.buyBlockedReason ?? (side === "NO" ? cfg.noBlockedReason : null));
 
   async function execute() {
     if (!wallet.publicKey || !amount || !minOut) return;
@@ -121,7 +121,7 @@ export function TradePanel() {
 
         <div className="grid grid-cols-2 gap-2">
           {(["YES", "NO"] as const).map((s) => (
-            <button key={s} onClick={() => { setSide(s); clear(); }} aria-pressed={side === s} title={s === "NO" && action === "BUY" && cfg.noBlockedReason ? cfg.noBlockedReason : undefined}
+            <button key={s} onClick={() => { setSide(s); clear(); }} aria-pressed={side === s} title={action === "BUY" ? (cfg.buyBlockedReason ?? (s === "NO" ? cfg.noBlockedReason : null)) ?? undefined : undefined}
               className={cn("rounded-md border-2 px-3 py-2.5 text-left transition-colors",
                 side === s ? (s === "YES" ? "border-yes bg-yes-soft" : "border-no bg-no-soft") : "border-transparent bg-muted")}>
               <div className={cn("text-sm font-semibold", s === "YES" ? "text-yes" : "text-no")}>{s}</div>
@@ -131,8 +131,8 @@ export function TradePanel() {
         </div>
 
         {cfg.easyToGame && <p className="rounded-md bg-warning/10 px-3 py-2 text-xs text-warning"><b>Easier to game.</b> {cfg.easyToGame}</p>}
-        {noBlocked ? (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm" role="note">{cfg.noBlockedReason}</p>
+        {buyBlocked ? (
+          <p className="rounded-md bg-muted px-3 py-2 text-sm" role="note">{buyBlocked}{cfg.buyBlockedReason && " You can still sell shares you already hold."}</p>
         ) : gate ?? (
           <>
             <div className="space-y-1.5">

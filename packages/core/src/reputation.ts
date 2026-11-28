@@ -10,6 +10,7 @@ export const REPUTATION_POINTS = {
   FAIR_VERIFICATION: 2, // vote that matched the final decision (after disputes)
   PENALTY_EVIDENCE_OVERTURNED: -10, // an approval of yours was overturned on dispute
   PENALTY_SELF_BET: -50, // held NO on your own challenge and didn't complete it
+  PENALTY_HOST_TRADED: -50, // traded on the market of a challenge you host (creator or co-admin)
 } as const;
 
 export type ReputationActivity = keyof typeof REPUTATION_POINTS;

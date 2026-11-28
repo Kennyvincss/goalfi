@@ -29,7 +29,8 @@ GoalFi resolves every market with its own **market-authority key**, so users tru
 |---|---|---|
 | Outcomes computed from published rules and evidence, with a dispute window | ✅ | Resolution gate in `@goalfi/core`; admin overrides need a written reason and are audited. |
 | Protection against self-betting, fake data and fake accounts | ✅ | No NO-bets by participants via GoalFi, wallet scan at settlement, wearables-only data, account age, market limits. See CONNECTED_ACCOUNTS.md. |
-| Unlinked second wallets can still bet against their own challenge | 🟡 | Can't be blocked on an open chain; limited by liquidity caps. Consider smaller caps on mainnet. |
+| Hosts (creator, co-admins) can't trade on their own market | ✅ | Blocked on GoalFi's trade screen; a host buy recorded by GoalFi is flagged publicly and penalized. Verifiers can still trade: consider restricting them too on mainnet. |
+| Unlinked second wallets can still bet against their own challenge or trade as a host | 🟡 | Can't be blocked on an open chain; limited by liquidity caps. Consider smaller caps on mainnet. |
 | Public record of hosts and participants | ✅ | Profiles show track record, fair-play flags and badges. |
 | Written resolution policy for edge cases (cancelled challenges, outages, disputed data) | ❌ | Publish it before launch. |
 | Independent review of disputed or high-value resolutions | ❌ | e.g. a second admin must approve overrides above a threshold. |

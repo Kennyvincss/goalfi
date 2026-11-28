@@ -9,6 +9,8 @@ import {
   joinChallenge,
   lifecycleTick,
   noBetBlockReason,
+  tradeRestrictions,
+  trackRecord,
   participantPositions,
   reviewEvidence,
   startChallengeNow,
@@ -101,7 +103,7 @@ describe("anti-manipulation", () => {
 
     for (const u of [veteran, saboteur]) await joinChallenge(ctx, u, c.id);
     expect(await noBetBlockReason(ctx, saboteur.id, c.id)).toMatch(/only bet on it succeeding/);
-    expect(await noBetBlockReason(ctx, creator.id, c.id)).toMatch(/You created this challenge/);
+    expect(await noBetBlockReason(ctx, creator.id, c.id)).toMatch(/You run this challenge/);
     expect(await noBetBlockReason(ctx, honest.id, c.id)).toBeNull();
 
     // The saboteur signs a NO buy with their wallet anyway: recorded and shown publicly.
@@ -157,5 +159,34 @@ describe("anti-manipulation", () => {
     const s2 = await startChallengeNow(ctx, creator, app.id);
     expect(s2.startDate.getTime()).toBe(Math.floor(clock.now.getTime() / DAY) * DAY); // today's (UTC) midnight
     expect((midnight.getTime() - s2.startDate.getTime()) % DAY).toBe(0);
+  });
+
+  it("hosts (creator and co-admins) can't trade on their own market; funding it is fine", async () => {
+    const coadmin = verifier; // reuse an established account as co-admin
+    const c0 = await createChallenge(ctx, creator, input({ title: "Hosted market", marketQuestion: "Hosted?", adminUsernames: [coadmin.username], verifierUsernames: [honest.username] }));
+    await confirmChallenge(ctx, creator, c0.id);
+    const m = await prisma.market.findUniqueOrThrow({ where: { challengeId: c0.id } });
+    await prisma.market.update({ where: { id: m.id }, data: { status: "OPEN" } });
+    await prisma.challenge.update({ where: { id: c0.id }, data: { status: "ACTIVE" } });
+
+    expect(await tradeRestrictions(ctx, creator.id, c0.id)).toEqual({ buy: expect.stringMatching(/can’t trade/), no: expect.stringMatching(/can’t trade/) });
+    expect((await tradeRestrictions(ctx, coadmin.id, c0.id)).buy).toMatch(/can’t trade/);
+    expect(await tradeRestrictions(ctx, veteran.id, c0.id)).toEqual({ buy: null, no: null });
+
+    // Funding the market is allowed and not flagged.
+    gateway.setTx(sig(3), { status: "CONFIRMED", slot: 3, deltas: { collateral: -50_000_000n, yes: 0n, no: 0n } });
+    await submitUserTransaction(ctx, creator, { signature: sig(3), marketId: m.id, kind: "DEPOSIT_LIQUIDITY" });
+    expect((await prisma.market.findUniqueOrThrow({ where: { id: m.id } })).hostTradedAt).toBeNull();
+
+    // Buying YES with their wallet anyway: flagged publicly, penalized once.
+    const before = (await prisma.user.findUniqueOrThrow({ where: { id: creator.id } })).reputationScore;
+    for (const n of [4, 5]) {
+      gateway.setTx(sig(n), { status: "CONFIRMED", slot: n, deltas: { collateral: -5_000_000n, yes: 9_000_000n, no: 0n } });
+      await submitUserTransaction(ctx, creator, { signature: sig(n), marketId: m.id, kind: "BUY_YES" });
+    }
+    expect((await prisma.market.findUniqueOrThrow({ where: { id: m.id } })).hostTradedAt).not.toBeNull();
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: creator.id } })).reputationScore).toBe(before - 50);
+    expect((await trackRecord(ctx, creator.id)).hostTrades).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: "market.host_traded", entityId: c0.id } })).toBe(2);
   });
 });

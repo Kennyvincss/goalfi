@@ -19,6 +19,8 @@ export interface TrackRecord {
   overturned: number;
   /** Times found holding NO on their own challenge. */
   selfBetFlags: number;
+  /** Times found trading on the market of a challenge they host. */
+  hostTrades: number;
   /** Challenges completed with progress verified by a connected app. */
   appVerifiedCompleted: number;
   reputation: number;
