@@ -242,6 +242,15 @@ async function main() {
     await page.getByRole("tab", { name: "Buy" }).click();
     await prisma.challenge.update({ where: { id: ch.id }, data: { creatorId: host.id } });
 
+    // Verifiers can't buy either.
+    const role = await prisma.challengeRole.create({ data: { challengeId: ch.id, userId: user.id, role: "VERIFIER" } });
+    await page.reload();
+    await page.getByText(/You verify this challenge/).first().waitFor({ timeout: 15000 }).catch(() => {});
+    ok("verifier can't buy on the market", await page.getByText(/You verify this challenge, so you can’t trade on its market/).isVisible());
+    await prisma.challengeRole.delete({ where: { id: role.id } });
+    await page.reload();
+    await page.getByRole("tab", { name: "Buy" }).waitFor({ timeout: 15000 });
+
     // Portfolio: positions found by scanning the wallet's token accounts.
     await page.goto(`${B}/portfolio`);
     await page.getByText("Trade e2e challenge").first().waitFor({ timeout: 15000 }).catch(() => {});
@@ -270,6 +279,7 @@ async function main() {
     await prisma.transaction.deleteMany({ where: { userId: user.id } });
     await prisma.market.deleteMany({ where: { challengeId: ch.id } });
     await prisma.participant.deleteMany({ where: { challengeId: ch.id } });
+    await prisma.challengeRole.deleteMany({ where: { challengeId: ch.id } });
     await prisma.challenge.delete({ where: { id: ch.id } });
     await prisma.session.deleteMany({ where: { userId: user.id } });
     await prisma.user.deleteMany({ where: { id: { in: [user.id, host.id] } } });

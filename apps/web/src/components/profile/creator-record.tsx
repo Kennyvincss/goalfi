@@ -17,7 +17,7 @@ export async function CreatorRecord({ userId, username }: { userId: string; user
       {" · "}
       {r.selfBetFlags || r.hostTrades ? (
         <span className="text-no">
-          {r.hostTrades ? `⚠ traded on own market ${r.hostTrades}×` : ""}
+          {r.hostTrades ? `⚠ traded on a market they ran or verified ${r.hostTrades}×` : ""}
           {r.hostTrades && r.selfBetFlags ? " · " : ""}
           {r.selfBetFlags ? `⚠ bet against own challenge ${r.selfBetFlags}×` : ""}
         </span>

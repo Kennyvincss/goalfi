@@ -161,7 +161,7 @@ describe("anti-manipulation", () => {
     expect((midnight.getTime() - s2.startDate.getTime()) % DAY).toBe(0);
   });
 
-  it("hosts (creator and co-admins) can't trade on their own market; funding it is fine", async () => {
+  it("hosts (creator, co-admins) and verifiers can't trade on the market; funding it is fine", async () => {
     const coadmin = verifier; // reuse an established account as co-admin
     const c0 = await createChallenge(ctx, creator, input({ title: "Hosted market", marketQuestion: "Hosted?", adminUsernames: [coadmin.username], verifierUsernames: [honest.username] }));
     await confirmChallenge(ctx, creator, c0.id);
@@ -171,6 +171,7 @@ describe("anti-manipulation", () => {
 
     expect(await tradeRestrictions(ctx, creator.id, c0.id)).toEqual({ buy: expect.stringMatching(/can’t trade/), no: expect.stringMatching(/can’t trade/) });
     expect((await tradeRestrictions(ctx, coadmin.id, c0.id)).buy).toMatch(/can’t trade/);
+    expect(await tradeRestrictions(ctx, honest.id, c0.id)).toEqual({ buy: expect.stringMatching(/You verify this challenge/), no: expect.stringMatching(/You verify/) });
     expect(await tradeRestrictions(ctx, veteran.id, c0.id)).toEqual({ buy: null, no: null });
 
     // Funding the market is allowed and not flagged.
@@ -188,5 +189,12 @@ describe("anti-manipulation", () => {
     expect((await prisma.user.findUniqueOrThrow({ where: { id: creator.id } })).reputationScore).toBe(before - 50);
     expect((await trackRecord(ctx, creator.id)).hostTrades).toBe(1);
     expect(await prisma.auditLog.count({ where: { action: "market.host_traded", entityId: c0.id } })).toBe(2);
+
+    // A verifier buying is treated the same way.
+    const vBefore = (await prisma.user.findUniqueOrThrow({ where: { id: honest.id } })).reputationScore;
+    gateway.setTx(sig(6), { status: "CONFIRMED", slot: 6, deltas: { collateral: -5_000_000n, yes: 9_000_000n, no: 0n } });
+    await submitUserTransaction(ctx, honest, { signature: sig(6), marketId: m.id, kind: "BUY_YES" });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: honest.id } })).reputationScore).toBe(vBefore - 50);
+    expect((await trackRecord(ctx, honest.id)).hostTrades).toBe(1);
   });
 });
