@@ -96,7 +96,7 @@ export default async function MarketPage({ params }: { params: Promise<{ slug: s
               Challenge: <Link className="text-primary" href={`/challenges/${c.slug}`}>{c.title}</Link> · {c._count.participants} participants · {m.status === "RESOLVED" ? "resolved" : m.status === "OPEN" || m.status === "AWAITING_LIQUIDITY" ? timeRemaining(m.endTs) : "trading closed"}
             </p>
             <div className="mt-1"><CreatorRecord userId={c.creatorId} username={c.creator.username} /></div>
-            {m.hostTradedAt && <p className="mt-3 rounded-md bg-no-soft px-3 py-2 text-sm text-no" role="alert"><b>⚠ The host traded on this market.</b> The creator or a co-admin of this challenge bought shares here, which hosts aren’t allowed to do. They lost 50 reputation. Keep it in mind before you trade.</p>}
+            {m.hostTradedAt && <p className="mt-3 rounded-md bg-no-soft px-3 py-2 text-sm text-no" role="alert"><b>⚠ An organiser traded on this market.</b> The creator, a co-admin or a verifier of this challenge bought shares here, which they aren’t allowed to do. They lost 50 reputation. Keep it in mind before you trade.</p>}
           </div>
 
           <Card>

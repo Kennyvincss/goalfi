@@ -600,7 +600,7 @@ export function ChallengeBuilder({
             <div className="space-y-1.5">
               <Label htmlFor="ver">Verifiers (GoalFi usernames)</Label>
               <Input id="ver" value={f.verifiers} onChange={(e) => set("verifiers", e.target.value)} placeholder="@alice @bob @carol" />
-              <p className="text-xs text-muted-foreground">Trusted people who review evidence. They can’t review their own submissions.</p>{field("verifierUsernames")}
+              <p className="text-xs text-muted-foreground">Trusted people who review evidence. They can’t review their own submissions, and they can’t trade on this challenge’s market.</p>{field("verifierUsernames")}
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5"><Label htmlFor="appr">Approvals required</Label><Input id="appr" type="number" min={1} max={Math.max(1, verifierCount)} value={f.requiredApprovals} onChange={(e) => set("requiredApprovals", Number(e.target.value))} />
@@ -662,7 +662,7 @@ export function ChallengeBuilder({
                     <input id="px" type="range" min={1} max={99} value={f.initialPricePct} onChange={(e) => set("initialPricePct", Number(e.target.value))} className="w-full accent-[var(--primary)]" />
                   </div>
                   <div className="space-y-1.5"><Label htmlFor="liq">Initial liquidity ({collateralSymbol})</Label><Input id="liq" type="number" min={1} value={f.initialLiquidityUsdc} onChange={(e) => set("initialLiquidityUsdc", Number(e.target.value))} />{field("initialLiquidityUsdc")}
-                    <p className="text-xs text-muted-foreground">You fund this from your own wallet after confirming. The market goes live once it’s funded. As the host you can’t trade on it yourself (neither can co-admins).{liquidityCap !== null && ` Up to ${liquidityCap} ${collateralSymbol} for you right now; the limit grows with your reputation.`}</p></div>
+                    <p className="text-xs text-muted-foreground">You fund this from your own wallet after confirming. The market goes live once it’s funded. As the host you can’t trade on it yourself (neither can co-admins or verifiers).{liquidityCap !== null && ` Up to ${liquidityCap} ${collateralSymbol} for you right now; the limit grows with your reputation.`}</p></div>
                 </div>
                 <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
                   <li>Trading closes at the challenge end date; markets can run at most 30 days.</li>

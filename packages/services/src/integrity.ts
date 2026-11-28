@@ -20,23 +20,37 @@ export async function challengeMarketLimits(ctx: ServiceContext, challengeId: st
   return { ...marketLimits({ easyToGame: !!easyToGame, creatorReputation: c.creator.reputationScore, trustedParticipants: await trustedParticipantCount(ctx, challengeId) }), easyToGame };
 }
 
-/** The challenge's hosts: its creator and co-admins. They run it, so they may not trade on its market. */
-export async function isHost(ctx: ServiceContext, userId: string, challengeId: string): Promise<boolean> {
+/**
+ * The user's official role on a challenge: "host" (creator or co-admin) or "verifier". Officials decide or
+ * influence the outcome, so they may not trade on its market.
+ */
+export async function officialRole(ctx: ServiceContext, userId: string, challengeId: string): Promise<"host" | "verifier" | null> {
   const c = await ctx.db.challenge.findUnique({ where: { id: challengeId }, select: { creatorId: true } });
-  if (!c) return false;
-  if (c.creatorId === userId) return true;
-  return (await ctx.db.challengeRole.count({ where: { challengeId, userId, role: "ADMIN" } })) > 0;
+  if (!c) return null;
+  if (c.creatorId === userId) return "host";
+  const roles = await ctx.db.challengeRole.findMany({ where: { challengeId, userId }, select: { role: true } });
+  if (roles.some((x) => x.role === "ADMIN")) return "host";
+  if (roles.some((x) => x.role === "VERIFIER")) return "verifier";
+  return null;
+}
+
+/** Whether the user runs or verifies the challenge (and so may not trade on its market). */
+export async function isOfficial(ctx: ServiceContext, userId: string, challengeId: string): Promise<boolean> {
+  return (await officialRole(ctx, userId, challengeId)) !== null;
 }
 
 export const HOST_TRADE_MESSAGE = "You run this challenge, so you can’t trade on its market. Funding it with liquidity is fine.";
+export const VERIFIER_TRADE_MESSAGE = "You verify this challenge, so you can’t trade on its market. Funding it with liquidity is fine.";
+const officialMessage = (role: "host" | "verifier") => (role === "host" ? HOST_TRADE_MESSAGE : VERIFIER_TRADE_MESSAGE);
 
 /**
  * What a user may not do on a challenge's market through GoalFi:
- * hosts (creator, co-admins) can't buy at all; participants can't buy NO (bet against themselves).
+ * officials (creator, co-admins, verifiers) can't buy at all; participants can't buy NO (bet against themselves).
  * Selling is always allowed, so existing positions can be closed.
  */
 export async function tradeRestrictions(ctx: ServiceContext, userId: string, challengeId: string): Promise<{ buy: string | null; no: string | null }> {
-  if (await isHost(ctx, userId, challengeId)) return { buy: HOST_TRADE_MESSAGE, no: HOST_TRADE_MESSAGE };
+  const role = await officialRole(ctx, userId, challengeId);
+  if (role) return { buy: officialMessage(role), no: officialMessage(role) };
   return { buy: null, no: await noBetBlockReason(ctx, userId, challengeId) };
 }
 
@@ -44,11 +58,11 @@ export async function tradeRestrictions(ctx: ServiceContext, userId: string, cha
 export async function noBetBlockReason(ctx: ServiceContext, userId: string, challengeId: string): Promise<string | null> {
   const p = await ctx.db.participant.findUnique({ where: { challengeId_userId: { challengeId, userId } } });
   if (p && p.status !== "WITHDRAWN") return "You’re taking part in this challenge, so you can only bet on it succeeding (YES). Betting against yourself isn’t allowed.";
-  if (await isHost(ctx, userId, challengeId)) return HOST_TRADE_MESSAGE;
-  return null;
+  const role = await officialRole(ctx, userId, challengeId);
+  return role ? officialMessage(role) : null;
 }
 
-/** A host traded on their own market anyway (a wallet can sign anything): flag it publicly and apply the penalty once. */
+/** An official (host or verifier) traded on the market anyway (a wallet can sign anything): flag it publicly and apply the penalty once. */
 export async function flagHostTrade(ctx: ServiceContext, challengeId: string, userId: string, kind: string) {
   const m = await ctx.db.market.findUnique({ where: { challengeId }, select: { id: true } });
   if (m) await ctx.db.market.updateMany({ where: { id: m.id, hostTradedAt: null }, data: { hostTradedAt: ctx.now() } });
@@ -58,7 +72,7 @@ export async function flagHostTrade(ctx: ServiceContext, challengeId: string, us
     const c = await ctx.db.challenge.findUniqueOrThrow({ where: { id: challengeId }, select: { slug: true, title: true } });
     await notify(ctx.db, [userId], {
       type: "MARKET_UPDATE",
-      message: `⚠️ You traded on the market of “${c.title}”, which you run. Hosts aren’t allowed to trade: this is shown publicly and cost 50 reputation.`,
+      message: `⚠️ You traded on the market of “${c.title}”, which you run or verify. Hosts and verifiers aren’t allowed to trade: this is shown publicly and cost 50 reputation.`,
       link: link(ctx, `/challenges/${c.slug}`),
       dedupKey: `HOST_TRADED:${challengeId}:${userId}`,
     });
